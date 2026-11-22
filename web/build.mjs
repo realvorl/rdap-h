@@ -12,7 +12,7 @@ await mkdir(resolve(outputDir, 'core'), { recursive: true });
 const index = (await readFile(resolve(webDir, 'index.html'), 'utf8')).replaceAll('../core/', 'core/');
 await writeFile(resolve(outputDir, 'index.html'), index);
 await cp(resolve(webDir, 'src/app.js'), resolve(outputDir, 'src/app.js'));
-for (const file of ['rdap.js', 'renderer.js', 'viewer.css']) {
+for (const file of ['rdap.js', 'renderer.js', 'viewer.css', 'theme.css']) {
   await cp(resolve(rootDir, 'core', file), resolve(outputDir, 'core', file));
 }
 process.stdout.write('Prepared the local development web app and shared core assets in site/.\n');

@@ -68,7 +68,6 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
     originalBodyStyle = body.getAttribute('style');
     original = document.createDocumentFragment();
     while (body.firstChild) original.appendChild(body.firstChild);
-    body.appendChild(original);
     renderer = Renderer.mount({
       data: parsed.data,
       kind: parsed.kind,
@@ -76,10 +75,11 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
       sourceUrl: location.href,
       container: body,
       stylesheetUrl: runtime.getURL('bundle/viewer.css'),
-      preferences: { dark: preferences.dark, machine: false },
+      themeStylesheetUrl: runtime.getURL('bundle/theme.css'),
+      preferences: { theme: preferences.theme, dark: preferences.dark, machine: false },
       onPreferencesChange(next) {
         preferences = next;
-        storage?.set({ dark: next.dark, machine: next.machine });
+        storage?.set({ theme: next.theme, dark: next.dark, machine: next.machine });
       },
       onOriginalResponse() { showOriginal(true); }
     });
@@ -87,11 +87,10 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
     return true;
   }
   function action() {
+    if (renderer) { showOriginal(!showingOriginal); return true; }
     const parsed = parsedPage(true);
     if (!parsed) return false;
-    if (!renderer) display(parsed);
-    else showOriginal(!showingOriginal);
-    return true;
+    return display(parsed);
   }
 
   runtime?.onMessage.addListener((message, sender, sendResponse) => {
@@ -109,9 +108,9 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
     return false;
   });
 
-  storage?.get(['operatingMode', 'dark', 'machine'], settings => {
+  storage?.get(['operatingMode', 'theme', 'dark', 'machine'], settings => {
     mode = settings.operatingMode === 'onDemand' ? 'onDemand' : 'automatic';
-    preferences = { dark: settings.dark, machine: settings.machine === true };
+    preferences = { theme: settings.theme, dark: settings.dark, machine: settings.machine === true };
     if (RDAPExtension.shouldAutoDisplay(mode, location.href, document.contentType, window.top === window, R)) display(parsedPage());
   });
 }

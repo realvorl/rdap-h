@@ -1,0 +1,14 @@
+FROM node:24.22.3-alpine3.24 AS web-build
+WORKDIR /src
+COPY core ./core
+COPY web ./web
+RUN node web/build.mjs
+
+FROM nginx:1.30.7-alpine3.24
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY --from=web-build /src/site/ /usr/share/nginx/html/
+USER 101:101
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
+ENTRYPOINT ["nginx"]
+CMD ["-g", "daemon off;"]

@@ -418,6 +418,15 @@ if (typeof document !== 'undefined') {
   let pendingLookup = null;
   let preferences = {};
 
+  function persistPreferences(next) {
+    preferences = { ...preferences, ...next };
+    if (extensionMode) extensionApi.storage.local.set({ theme: preferences.theme, dark: preferences.dark, machine: preferences.machine });
+    else {
+      try { localStorage.setItem('rdap-human-viewer-preferences', JSON.stringify({ theme: preferences.theme, machine: preferences.machine })); }
+      catch { /* Local preference storage may be unavailable in private browsing. */ }
+    }
+  }
+
   function resetView() {
     requestNumber++;
     requestController?.abort();
@@ -534,15 +543,11 @@ if (typeof document !== 'undefined') {
         raw: parsed.raw,
         sourceUrl: parsed.finalUrl,
         newLookupHref: extensionMode ? extensionApi.runtime.getURL('lookup/index.html') : RDAPWeb.landingUrl(location.href),
-        websiteAttribution: !extensionMode,
-        attributionText: 'Registration data is provided by the respective RDAP registries. This is an independent viewer and is not affiliated with those registries.',
         container: viewerRoot,
         stylesheetUrl: coreRoot + 'viewer.css',
+        themeStylesheetUrl: coreRoot + 'theme.css',
         preferences,
-        onPreferencesChange(next) {
-          preferences = next;
-          if (extensionMode) extensionApi.storage.local.set({ dark: next.dark, machine: next.machine });
-        }
+        onPreferencesChange: persistPreferences
       });
       status.hidden = true;
       status.textContent = '';
@@ -610,7 +615,20 @@ if (typeof document !== 'undefined') {
   });
 
   const initialUrl = new URL(location.href).searchParams.get('url');
-  if (extensionMode) extensionApi.storage.local.get(['dark', 'machine'], stored => { preferences = { dark: stored.dark, machine: stored.machine === true }; });
-  if (initialUrl) loadEndpoint(initialUrl);
-  else input.focus({ preventScroll: true });
+  function startInitialView() {
+    const landingTheme = document.getElementById('landing-theme');
+    if (landingTheme) RDAPRenderer.createThemeSelector(landingTheme, document.documentElement, preferences, persistPreferences);
+    if (initialUrl) loadEndpoint(initialUrl);
+    else input.focus({ preventScroll: true });
+  }
+  if (extensionMode) {
+    extensionApi.storage.local.get(['theme', 'dark', 'machine'], stored => {
+      preferences = { theme: stored.theme, dark: stored.dark, machine: stored.machine === true };
+      startInitialView();
+    });
+  } else {
+    try { preferences = JSON.parse(localStorage.getItem('rdap-human-viewer-preferences') || '{}'); }
+    catch { preferences = { theme: 'auto', machine: false }; }
+    startInitialView();
+  }
 }

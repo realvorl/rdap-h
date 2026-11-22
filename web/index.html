@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A clear, standards-aware view of RDAP registration data, rendered in your browser.">
   <title>RDAP Human Viewer</title>
+  <link rel="stylesheet" href="../core/theme.css">
   <style>
-    :root{color-scheme:light dark;font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f8fafc;color:#172332}
-    @media(prefers-color-scheme:dark){:root{background:#101820;color:#e9f2fa}}
+    :root{color-scheme:light;font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f8fafc;color:#172332}
     *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;grid-template-rows:1fr auto;place-items:center;padding:24px}
     .landing{width:min(100%,680px);text-align:center}.brand{font-size:clamp(36px,8vw,56px);font-weight:650;letter-spacing:-.055em;margin:0 0 8px}.tagline{color:#64748b;margin:0 0 30px}
     form{display:flex;gap:10px;padding:8px;border:1px solid #dce4ec;border-radius:999px;background:#fff;box-shadow:0 2px 12px #17233212}
@@ -15,14 +15,14 @@
     button{border:0;border-radius:999px;background:#156b8c;color:white;padding:10px 20px;font:600 14px system-ui,sans-serif;cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid #156b8c;outline-offset:3px}
     .hint{font-size:13px;color:#64748b;margin:18px 0 0}.error{color:#b42318;margin:14px 0 0;font-size:14px}
     .retry-button{display:block;margin:14px auto 0;border:1px solid #dce4ec;border-radius:999px;background:transparent;color:inherit;padding:8px 16px;font:600 13px system-ui,sans-serif;cursor:pointer}.retry-button:disabled{opacity:.55;cursor:wait}
-    .site-attribution{width:100%;align-self:end;text-align:center;margin-top:28px;color:#64748b;font-size:12px}.site-attribution a{color:inherit}
-    @media(prefers-color-scheme:dark){.tagline,.hint{color:#afc0cf}form{background:#17232d;border-color:#324450;box-shadow:none}input{color:#e9f2fa}button{background:#176b82}.error{color:#ff9b91}.retry-button{border-color:#324450}.site-attribution{color:#afc0cf}}
+    .site-attribution{width:100%;align-self:end;text-align:center;margin-top:28px;color:#64748b;font-size:12px}.site-attribution p{margin:0 0 6px}.site-links{display:flex;justify-content:center;gap:14px;flex-wrap:wrap;align-items:center}.site-attribution a{color:inherit}.site-links label{margin-left:5px;font-size:12px}.landing-theme-select{padding:5px 20px 5px 8px}
+    :root[data-theme="light"]{color-scheme:light;background:#f8fafc;color:#172332}:root[data-theme="dark"]{color-scheme:dark;background:#101820;color:#e9f2fa}:root[data-theme="dark"] .tagline,:root[data-theme="dark"] .hint{color:#afc0cf}:root[data-theme="dark"] form{background:#17232d;border-color:#324450;box-shadow:none}:root[data-theme="dark"] input{color:#e9f2fa}:root[data-theme="dark"] button{background:#176b82}:root[data-theme="dark"] .error{color:#ff9b91}:root[data-theme="dark"] .retry-button{border-color:#324450}:root[data-theme="dark"] .site-attribution{color:#afc0cf}
     [hidden]{display:none!important}
   </style>
 </head>
 <body>
   <main class="landing" id="landing">
-    <h1 class="brand">RDAP Human Viewer</h1>
+    <h1 class="brand">RDAP but for Humans</h1>
     <p class="tagline">Look up registration data in a clear, readable view.</p>
     <form id="lookup-form" role="search">
       <input id="rdap-url" name="url" type="text" inputmode="url" placeholder="IP address, domain, ASN, or full HTTPS RDAP URL" aria-label="IPv4 or IPv6 address, domain name, ASN, or full HTTPS RDAP URL" aria-describedby="lookup-status lookup-error" required>
@@ -35,7 +35,15 @@
     <p class="hint">Enter a public IP address, domain name, ASN, or complete HTTPS RDAP URL. Lookups use IANA bootstrap registries and run in your browser.</p>
   </main>
   <div id="viewer-root" hidden></div>
-  <footer id="landing-attribution" class="site-attribution">Registration data is provided by the respective RDAP registries. This is an independent viewer and is not affiliated with those registries.</footer>
+  <footer id="landing-attribution" class="site-attribution">
+    <p>Registration data is provided by the respective RDAP registries. RDAP Human Viewer is an independent project and is not affiliated with those registries.</p>
+    <nav class="site-links" aria-label="Project links">
+      <a href="https://github.com/realvorl/rdap-human-viewer" target="_blank" rel="noopener noreferrer">RealVorl · GitHub</a>
+      <a href="https://github.com/realvorl/rdap-human-viewer/issues" target="_blank" rel="noopener noreferrer">Issues &amp; support</a>
+      <a href="https://ko-fi.com/realvorl" target="_blank" rel="noopener noreferrer">Ko-fi</a>
+      <label for="landing-theme">Theme</label><select id="landing-theme" class="theme-select landing-theme-select" aria-label="Color theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    </nav>
+  </footer>
   <script src="../core/rdap.js"></script>
   <script src="../core/renderer.js"></script>
   <script src="src/app.js" data-core-root="../core/"></script>

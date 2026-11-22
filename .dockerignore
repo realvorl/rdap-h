@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+**/node_modules
+extension
+dist
+site
+coverage
+.cache
+.env
+.env.*
+credentials.json
+secrets.json
+*.pem
+*.key
+*.log

@@ -10,13 +10,74 @@ test('shared renderer exports a browser mount point without requiring a framewor
   assert.equal(typeof Renderer.tokenizeJSON, 'function');
 });
 
-test('renderer restores and persists HUMAN/MACHINE and theme preferences', () => {
-  assert.deepEqual(Renderer.normalizePreferences({ dark: true, machine: true }), { dark: true, machine: true });
-  assert.deepEqual(Renderer.normalizePreferences({ dark: false, machine: 'yes' }, true), { dark: false, machine: false });
-  assert.deepEqual(Renderer.normalizePreferences({}, true), { dark: true, machine: false });
+test('renderer restores and persists HUMAN/MACHINE and auto/light/dark preferences', () => {
+  assert.deepEqual(Renderer.normalizePreferences({ theme: 'dark', machine: true }), { theme: 'dark', dark: true, machine: true });
+  assert.deepEqual(Renderer.normalizePreferences({ theme: 'light', dark: false, machine: 'yes' }, true), { theme: 'light', dark: false, machine: false });
+  assert.deepEqual(Renderer.normalizePreferences({}, true), { theme: 'auto', dark: true, machine: false });
+  assert.deepEqual(Renderer.normalizePreferences({ dark: false }, true), { theme: 'light', dark: false, machine: false });
   const source = fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8');
-  assert.match(source, /onPreferencesChange\(\{ dark, machine \}\)/);
+  assert.match(source, /onPreferencesChange\(\{ \.\.\.currentPreferences, machine \}\)/);
+  assert.match(source, /createThemeSelector\(themeToggle, screen, preferences/);
   assert.match(source, /onOriginalResponse/);
+});
+
+test('theme selector selects Auto, Light, and Dark; Auto tracks OS changes and overrides persist', () => {
+  const listeners = new Map();
+  const select = {
+    value: '',
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    removeEventListener(type) { listeners.delete(type); }
+  };
+  const target = { dataset: {} };
+  const systemListeners = new Set();
+  const media = {
+    matches: false,
+    addEventListener(_type, listener) { systemListeners.add(listener); },
+    removeEventListener(_type, listener) { systemListeners.delete(listener); }
+  };
+  const changes = [];
+  const control = Renderer.createThemeSelector(select, target, { theme: 'auto' }, value => changes.push(value), media);
+  assert.equal(select.value, 'auto');
+  assert.equal(target.dataset.theme, 'light');
+  media.matches = true;
+  systemListeners.forEach(listener => listener({ matches: true }));
+  assert.equal(target.dataset.theme, 'dark');
+
+  select.value = 'light';
+  listeners.get('change')();
+  assert.deepEqual(control.state, { theme: 'light', dark: false });
+  media.matches = false;
+  systemListeners.forEach(listener => listener({ matches: false }));
+  assert.equal(target.dataset.theme, 'light');
+
+  select.value = 'dark';
+  listeners.get('change')();
+  assert.deepEqual(control.state, { theme: 'dark', dark: true });
+  media.matches = false;
+  systemListeners.forEach(listener => listener({ matches: false }));
+  assert.equal(target.dataset.theme, 'dark');
+
+  select.value = 'auto';
+  listeners.get('change')();
+  assert.equal(target.dataset.theme, 'light');
+  media.matches = true;
+  systemListeners.forEach(listener => listener({ matches: true }));
+  assert.equal(target.dataset.theme, 'dark');
+  assert.deepEqual(changes.map(change => change.theme), ['light', 'dark', 'auto']);
+  control.destroy();
+  assert.equal(listeners.size, 0);
+  assert.equal(systemListeners.size, 0);
+});
+
+test('theme selector restores saved Light and Dark selections', () => {
+  for (const [theme, expectedDark] of [['light', false], ['dark', true]]) {
+    const select = { value: '', addEventListener() {}, removeEventListener() {} };
+    const target = { dataset: {} };
+    const control = Renderer.createThemeSelector(select, target, { theme }, () => {}, { matches: !expectedDark });
+    assert.equal(select.value, theme);
+    assert.equal(target.dataset.theme, expectedDark ? 'dark' : 'light');
+    control.destroy();
+  }
 });
 
 test('MACHINE display pretty prints JSON while copy retains exact response bytes', () => {
@@ -160,6 +221,10 @@ test('JSON tokenizer handles a large object and reconstructs every source charac
 
 test('shared stylesheet contains the common filter, theme, and standards affordances', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'viewer.css'), 'utf8');
+  const themeCSS = fs.readFileSync(path.join(__dirname, '..', 'theme.css'), 'utf8');
+  assert.match(themeCSS, /^\.theme-select\{/);
+  assert.match(themeCSS, /\.app\[data-theme="dark"\] \.theme-select/);
+  assert.match(themeCSS, /html\[data-theme="dark"\] \.landing-theme-select/);
   for (const selector of ['.human-toolbar', '.filter-input', '.app[data-theme="dark"]', '.info', '.toolbar-button', '.copy-raw']) {
     assert.ok(css.includes(selector), selector);
   }

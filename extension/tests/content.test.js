@@ -54,19 +54,25 @@ test('toolbar action opens lookup when no RDAP page responded and toggles a dete
   assert.match(integration, /if \(RDAPExtension\.shouldAutoDisplay\(mode/);
   assert.match(integration, /renderer\.setMachineMode\(false\)/);
   assert.match(integration, /onOriginalResponse\(\)/);
+  assert.match(integration, /storage\?\.get\(\['operatingMode', 'theme', 'dark', 'machine'\]/);
+  assert.match(integration, /storage\?\.set\(\{ theme: next\.theme, dark: next\.dark, machine: next\.machine \}\)/);
 });
 
 test('extension manifest points at the local generated core bundle', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
   assert.deepEqual(manifest.content_scripts[0].js, ['bundle/rdap.js', 'bundle/renderer.js', 'src/content.js']);
-  assert.deepEqual(manifest.web_accessible_resources[0].resources, ['bundle/viewer.css']);
+  assert.deepEqual(manifest.web_accessible_resources[0].resources, ['bundle/viewer.css', 'bundle/theme.css']);
   assert.deepEqual(manifest.permissions, ['storage']);
   assert.deepEqual(manifest.optional_host_permissions, ['https://*/*']);
   assert.equal(manifest.action.default_title, 'RDAP Human Viewer');
   assert.equal(manifest.options_ui.page, 'settings.html');
   assert.equal(manifest.background.service_worker, 'src/background.js');
+  assert.deepEqual(manifest.background.scripts, ['src/background.js']);
+  assert.equal(manifest.browser_specific_settings.gecko.strict_min_version, '121.0');
+  assert.equal(manifest.minimum_chrome_version, '121');
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'lookup', 'index.html')));
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'lookup', 'app.js')));
+  assert.ok(fs.existsSync(path.join(__dirname, '..', 'bundle', 'theme.css')));
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'settings.html')));
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'settings.js')));
   const lookupHtml = fs.readFileSync(path.join(__dirname, '..', 'lookup', 'index.html'), 'utf8');
@@ -77,6 +83,10 @@ test('extension manifest points at the local generated core bundle', () => {
   assert.equal(fs.readFileSync(path.join(__dirname, '..', 'bundle', 'rdap.js'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'rdap.js'), 'utf8'));
   assert.equal(fs.readFileSync(path.join(__dirname, '..', 'bundle', 'renderer.js'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'renderer.js'), 'utf8'));
   assert.equal(fs.readFileSync(path.join(__dirname, '..', 'bundle', 'viewer.css'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'viewer.css'), 'utf8'));
+  assert.equal(fs.readFileSync(path.join(__dirname, '..', 'bundle', 'theme.css'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'theme.css'), 'utf8'));
+  const landingHtml = fs.readFileSync(path.join(__dirname, '..', 'lookup', 'index.html'), 'utf8');
+  assert.match(landingHtml, /<select id="landing-theme"[^>]*aria-label="Color theme"/);
+  assert.match(landingHtml, /<option value="auto">Auto<\/option><option value="light">Light<\/option><option value="dark">Dark<\/option>/);
 });
 
 test('extension requests optional service origins only from its local lookup flow', () => {

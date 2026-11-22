@@ -261,16 +261,18 @@ test('aborts an obsolete lookup and never starts a second endpoint after cancell
   assert.equal(calls, 1);
 });
 
-test('website and result renderer expose registry attribution, with source link only on results', () => {
+test('website landing and shared result renderer show exact registry attribution and support links', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const renderer = fs.readFileSync(path.join(__dirname, '..', '..', 'core/renderer.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
-  const attribution = 'Registration data is provided by the respective RDAP registries. This is an independent viewer and is not affiliated with those registries.';
+  const attribution = 'Registration data is provided by the respective RDAP registries. RDAP Human Viewer is an independent project and is not affiliated with those registries.';
   assert.ok(html.includes(attribution));
-  assert.ok(app.includes(attribution));
-  assert.match(renderer, /renderRegistryAttribution\(screen, sourceUrl, options\.attributionText\)/);
+  assert.ok(renderer.includes(attribution));
+  assert.match(renderer, /renderRegistryAttribution\(screen, sourceUrl\)/);
   assert.match(html, /id="landing-attribution"/);
-  assert.match(app, /websiteAttribution:\s*!extensionMode/);
+  assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-human-viewer/);
+  assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-human-viewer\/issues/);
+  assert.match(html, /https:\/\/ko-fi\.com\/realvorl/);
   assert.match(renderer, /Source RDAP endpoint/);
   const extensionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension/src/content.js'), 'utf8');
   assert.doesNotMatch(extensionSource, /websiteAttribution/);
@@ -282,6 +284,15 @@ test('manual retry is user-triggered and preserves the current resolved endpoint
   assert.match(source, /loadEndpoints\(retryEndpoints\)/);
   assert.match(source, /retryButton\.disabled = !RDAPWeb\.retryAllowed/);
   assert.doesNotMatch(source, /setInterval\s*\(/);
+});
+
+test('extension lookup waits for stored view and theme preferences before rendering a shared link', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
+  const storageRead = source.indexOf("extensionApi.storage.local.get(['theme', 'dark', 'machine']");
+  const preferencesRestore = source.indexOf('preferences = { theme: stored.theme, dark: stored.dark, machine: stored.machine === true }');
+  const initialStart = source.indexOf('startInitialView();', storageRead);
+  assert.ok(storageRead >= 0 && preferencesRestore > storageRead && initialStart > preferencesRestore);
+  assert.match(source, /function startInitialView\(\)/);
 });
 
 test('generates a directly shareable URL and preserves unrelated query parameters', () => {
@@ -331,12 +342,23 @@ test('web entry point loads shared modules through local relative paths', () => 
   assert.match(html, /src="\.\.\/core\/rdap\.js"/);
   assert.match(html, /src="\.\.\/core\/renderer\.js"/);
   assert.match(html, /src="src\/app\.js"/);
+  assert.match(html, /href="\.\.\/core\/theme\.css"/);
+  assert.match(html, /<select id="landing-theme"[^>]*aria-label="Color theme"/);
+  assert.match(html, /<option value="auto">Auto<\/option><option value="light">Light<\/option><option value="dark">Dark<\/option>/);
   assert.doesNotMatch(html, /https?:[^"']+\.js/);
+});
+
+test('standalone landing theme uses the shared selector and persists locally', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
+  assert.match(app, /RDAPRenderer\.createThemeSelector\(landingTheme, document\.documentElement, preferences, persistPreferences\)/);
+  assert.match(app, /localStorage\.setItem\('rdap-human-viewer-preferences'/);
+  assert.match(app, /localStorage\.getItem\('rdap-human-viewer-preferences'/);
+  assert.match(app, /themeStylesheetUrl: coreRoot \+ 'theme\.css'/);
 });
 
 test('web build contains only the web frontend and required shared core assets', () => {
   const site = path.join(__dirname, '..', '..', 'site');
-  for (const file of ['index.html', 'src/app.js', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css']) {
+  for (const file of ['index.html', 'src/app.js', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css', 'core/theme.css']) {
     assert.ok(fs.existsSync(path.join(site, file)), file);
   }
   assert.ok(!fs.existsSync(path.join(site, 'extension')));

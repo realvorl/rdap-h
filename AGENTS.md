@@ -1,30 +1,29 @@
 # Repository Guidelines
 
-## Project Structure
+## Architecture
 
-`core/` is the single source of truth for RDAP recognition, filtering, field help, HUMAN/MACHINE rendering, JSON highlighting, and shared CSS. `extension/` contains the Manifest V3 integration, toolbar action, settings page, local lookup page, icons, and tests. `extension/build.mjs` copies shared core assets and the web lookup controller into generated extension paths; do not edit generated files. `web/` is retained only for local development and browser testing. `.github/workflows/tests.yml` runs CI; there is no publishing workflow.
+`core/` is the sole source for RDAP parsing, IANA bootstrap discovery, formatting, safe DOM rendering, filtering, themes, JSON highlighting and shared CSS. `extension/` contains the browser integration, settings, local lookup UI and release packager. `web/` is an independent static app for self-hosting and development. `docker/` packages only the built static web app into unprivileged nginx. `tests/` verifies distribution artifacts. Do not edit generated bundles or `site/`; rebuild them from source.
 
-## Build, Test, and Preview
+## Development
 
-Use Node.js 20 or newer from the repository root:
+Use built-in Node.js APIs only; there are no runtime or test dependencies. Build from the repository root:
 
 ```sh
 node extension/build.mjs
 node web/build.mjs
-node --test core/tests/*.test.js extension/tests/*.test.js web/tests/*.test.js
-find core extension web site -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+node extension/package.mjs
+node --test core/tests/*.test.js extension/tests/*.test.js web/tests/*.test.js tests/*.test.js
+find core extension web tests site -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
 ```
 
-Load `extension/` as an unpacked extension in Chrome or Edge after building. Preview the development interface with `python3 -m http.server 8000` from the root and open `/web/`.
+Preview `web/` with `python3 -m http.server 8000` from the root. Docker builds use the pinned Node and nginx versions in `docker/Dockerfile`; Compose maps host port 8080 to container port 8080.
 
-## Coding and Testing
+## Code and privacy
 
-Keep dependencies at zero. Use two-space indentation, single quotes, semicolons, and camelCase. Shared display behavior belongs in `core/`; browser integration and settings belong in `extension/`; lookup discovery and the local testing interface belong in `web/`. Use safe DOM APIs and `textContent` for untrusted data. Keep executable code local. Extension cross-origin lookup requests must ask for optional host access to the IANA bootstrap and RDAP origins needed for that lookup. Add automated tests next to each component and run both build scripts before tests that compare generated assets.
+Use two-space indentation, single quotes, semicolons and camelCase. Keep browser integration in `extension/`, shared behavior in `core/`, and website navigation/fetching in `web/`. Render untrusted RDAP values through safe DOM APIs, never `innerHTML`. Keep all extension JavaScript local. No analytics, tracking, query logging, backend, or proxy. The extension stores only local mode/theme/view preferences; browser lookups go directly to IANA and the selected RDAP registry and remain subject to browser CORS.
 
-## Extension Behavior and Privacy
+The extension requests `storage`, optional HTTPS host access for bootstrap/selected RDAP origins, and HTTP(S) content-script matching for Automatic RDAP recognition. Document any permission change and its reason. On demand must not parse or modify an RDAP page until the toolbar action is invoked.
 
-Automatic mode is the default and may inspect only candidate RDAP response pages before rendering. On-demand mode must not parse or modify page content until the user clicks the toolbar icon. The icon opens the bundled lookup interface on non-RDAP pages. Store operating mode and viewer theme/mode preferences with `chrome.storage.local`. Preserve a control that restores the original browser-rendered response. Do not add analytics, remote executable code, broad network requests, or unrelated permissions.
+## Tests and release
 
-## Changes and Release Checks
-
-Use concise imperative commit subjects. Document user-visible changes, permission changes, tests, and manual browser checks. Check both Automatic and On demand in Chrome and Edge, including toolbar lookup and original-response restoration. Keep the MIT license and contributor attribution intact. Never deploy or publish unless explicitly instructed.
+Add regression tests beside the affected component and update package tests when manifest files change. CI builds the extension/web assets, tests, syntax-checks JavaScript and builds both Docker architectures. The version-tag workflows package the extension and publish Docker to GHCR. Update `CHANGELOG.md` and the manifest version for releases. Never deploy, push, publish or create a release tag without explicit authorization. Preserve `LICENSE` and existing RealVorl attribution.

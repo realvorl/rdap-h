@@ -1,0 +1,32 @@
+name: Continuous integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node extension/build.mjs
+      - run: node web/build.mjs
+      - run: node extension/package.mjs
+      - run: node --test core/tests/*.test.js extension/tests/*.test.js web/tests/*.test.js tests/*.test.js
+      - name: Check JavaScript syntax
+        run: find core extension web tests site -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          outputs: type=oci,dest=/tmp/rdap-human-viewer-ci.oci

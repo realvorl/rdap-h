@@ -11,7 +11,8 @@ await mkdir(lookupDir, { recursive: true });
 for (const [source, destination] of [
   ['core/rdap.js', 'rdap.js'],
   ['core/renderer.js', 'renderer.js'],
-  ['core/viewer.css', 'viewer.css']
+  ['core/viewer.css', 'viewer.css'],
+  ['core/theme.css', 'theme.css']
 ]) {
   await copyFile(resolve(rootDir, source), resolve(bundleDir, destination));
 }

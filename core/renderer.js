@@ -5,9 +5,12 @@
   else root.RDAPRenderer = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (R) {
   'use strict';
-  const KOFI_URL = '';
+  const ATTRIBUTION = 'Registration data is provided by the respective RDAP registries. RDAP Human Viewer is an independent project and is not affiliated with those registries.';
+  const SOURCE_URL = 'https://github.com/realvorl/rdap-human-viewer';
+  const ISSUES_URL = SOURCE_URL + '/issues';
+  const KOFI_URL = 'https://ko-fi.com/realvorl';
   const MAX_NODES = 7000;
-  let dark, screen, machinePane, humanContent, recordHeader, filterControls, data, kind, sourceUrl, rawResponse, formattedJSON, host, shadow, toggle, expandControls;
+  let screen, machinePane, humanContent, recordHeader, filterControls, data, kind, sourceUrl, rawResponse, formattedJSON, host, shadow, toggle, expandControls;
 
   function mount(options) {
     const { container = document.body, stylesheetUrl, onModeChange = () => {}, onPreferencesChange = () => {} } = options;
@@ -21,8 +24,8 @@
     rawResponse = machine.clipboard;
     const restoreScrollbarGutter = reserveScrollbarGutter(document.documentElement);
     const restoreContainer = constrainContainer(container);
-    const preferences = normalizePreferences(options.preferences, window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
-    dark = preferences.dark;
+    const colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)');
+    let currentPreferences = normalizePreferences(options.preferences, colorScheme?.matches ?? false);
     host = document.createElement('div');
     host.id = 'rdap-human-viewer-host';
     container.appendChild(host);
@@ -31,12 +34,16 @@
     style.rel = 'stylesheet';
     style.href = stylesheetUrl;
     shadow.appendChild(style);
+    const themeStyle = document.createElement('link');
+    themeStyle.rel = 'stylesheet';
+    themeStyle.href = options.themeStylesheetUrl || String(stylesheetUrl).replace(/viewer\.css(?:[?#].*)?$/, 'theme.css');
+    shadow.appendChild(themeStyle);
     screen = el('div', 'app');
-    screen.dataset.theme = dark ? 'dark' : 'light';
+    screen.dataset.theme = currentPreferences.dark ? 'dark' : 'light';
     shadow.appendChild(screen);
     machinePane = renderMachine(formattedJSON, rawResponse);
     machinePane.hidden = true;
-    let human = !preferences.machine;
+    let human = !currentPreferences.machine;
     toggle = el('button', 'toolbar-button mode-toggle', human ? 'MACHINE' : 'HUMAN');
     toggle.type = 'button';
     toggle.setAttribute('aria-label', 'Switch to machine-readable JSON view');
@@ -50,17 +57,60 @@
       toggle.setAttribute('aria-label', machine ? 'Switch to human-readable RDAP view' : 'Switch to machine-readable JSON view');
       window.scrollTo(0, scrollTop);
       onModeChange(machine);
-      onPreferencesChange({ dark, machine });
+      onPreferencesChange({ ...currentPreferences, machine });
     }
-    render(options.newLookupHref, options.onOriginalResponse);
+    const themeControl = render(options.newLookupHref, options.onOriginalResponse, currentPreferences, colorScheme, next => {
+      currentPreferences = next;
+      onPreferencesChange({ ...currentPreferences, machine: !human });
+    });
     toggle.setAttribute('aria-label', human ? 'Switch to machine-readable JSON view' : 'Switch to human-readable RDAP view');
     if (!human) applyMode({ humanContent, recordHeader, machinePane, expandControls, filterControls }, true);
-    if (options.websiteAttribution === true) renderRegistryAttribution(screen, sourceUrl, options.attributionText);
-    return { host, setMachineMode, destroy() { host.remove(); restoreContainer(); restoreScrollbarGutter(); } };
+    renderRegistryAttribution(screen, sourceUrl);
+    return { host, setMachineMode, destroy() { themeControl.destroy(); host.remove(); restoreContainer(); restoreScrollbarGutter(); } };
   }
 
   function normalizePreferences(preferences = {}, systemDark = false) {
-    return { dark: typeof preferences.dark === 'boolean' ? preferences.dark : Boolean(systemDark), machine: preferences.machine === true };
+    const theme = ['auto', 'light', 'dark'].includes(preferences.theme)
+      ? preferences.theme
+      : typeof preferences.dark === 'boolean' ? preferences.dark ? 'dark' : 'light' : 'auto';
+    return { ...resolveTheme(theme, systemDark), machine: preferences.machine === true };
+  }
+
+  function resolveTheme(theme, systemDark = false) {
+    const selected = ['auto', 'light', 'dark'].includes(theme) ? theme : 'auto';
+    return { theme: selected, dark: selected === 'dark' || (selected === 'auto' && Boolean(systemDark)) };
+  }
+
+  function createThemeSelector(select, target, preferences = {}, onChange = () => {}, colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)')) {
+    let state = resolveTheme(preferences.theme, colorScheme?.matches ?? false);
+    const apply = () => {
+      select.value = state.theme;
+      target.dataset.theme = state.dark ? 'dark' : 'light';
+    };
+    const set = theme => {
+      state = resolveTheme(theme, colorScheme?.matches ?? false);
+      apply();
+      onChange({ ...state });
+    };
+    const onSelect = () => set(select.value);
+    const onSystemThemeChange = event => {
+      if (state.theme !== 'auto') return;
+      state = resolveTheme('auto', event.matches);
+      apply();
+    };
+    select.addEventListener('change', onSelect);
+    if (colorScheme?.addEventListener) colorScheme.addEventListener('change', onSystemThemeChange);
+    else colorScheme?.addListener?.(onSystemThemeChange);
+    apply();
+    return {
+      get state() { return { ...state }; },
+      set,
+      destroy() {
+        select.removeEventListener('change', onSelect);
+        if (colorScheme?.removeEventListener) colorScheme.removeEventListener('change', onSystemThemeChange);
+        else colorScheme?.removeListener?.(onSystemThemeChange);
+      }
+    };
   }
 
   function tokenizeJSON(source) {
@@ -222,20 +272,27 @@
     return panel;
   }
 
-  function renderRegistryAttribution(parent, endpoint, attributionText) {
+  function renderRegistryAttribution(parent, endpoint) {
     const footer = add(parent, el('footer', 'registry-attribution'));
-    if (attributionText) add(footer, el('p', '', attributionText));
+    add(footer, el('p', 'registry-disclaimer', ATTRIBUTION));
+    const links = add(footer, el('div', 'registry-links'));
     if (typeof endpoint === 'string') {
       try {
         const url = new URL(endpoint);
         if (url.protocol === 'https:') {
-          const link = add(footer, el('a', 'source-endpoint', 'Source RDAP endpoint'));
+          const link = add(links, el('a', 'source-endpoint', 'Source RDAP endpoint'));
           link.href = url.href;
           link.target = '_blank';
           link.rel = 'noopener noreferrer';
           link.title = url.href;
         }
       } catch { /* Omit an invalid source URL. */ }
+    }
+    for (const [label, href] of [['GitHub', SOURCE_URL], ['Issues & support', ISSUES_URL], ['Ko-fi', KOFI_URL]]) {
+      const link = add(links, el('a', '', label));
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
     }
   }
 
@@ -411,7 +468,7 @@
     content(body);
     return container;
   }
-  function render(newLookupHref, onOriginalResponse) {
+  function render(newLookupHref, onOriginalResponse, preferences, colorScheme, onThemeChange) {
     const wrap = add(screen, el('main', 'container'));
     const toolbar = add(wrap, el('div', 'human-toolbar'));
     if (typeof newLookupHref === 'string' && newLookupHref) {
@@ -447,20 +504,12 @@
     const collapse = add(expandControls, el('button', 'toolbar-button collapse-all', '− Collapse all'));
     collapse.type = 'button'; collapse.setAttribute('aria-label', 'Collapse all HUMAN sections and details');
     const actions = add(toolbar, el('div', 'toolbar-actions'));
-    const themeToggle = add(actions, el('button', 'toolbar-button theme-toggle'));
-    themeToggle.type = 'button';
-    function syncThemeButton() {
-      themeToggle.textContent = dark ? '☀ Light' : '☾ Dark';
-      themeToggle.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
-      themeToggle.setAttribute('aria-pressed', String(dark));
+    const themeToggle = add(actions, el('select', 'toolbar-button theme-select'));
+    themeToggle.setAttribute('aria-label', 'Color theme');
+    for (const [value, label] of [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']]) {
+      const option = add(themeToggle, el('option', '', label));
+      option.value = value;
     }
-    syncThemeButton();
-    themeToggle.addEventListener('click', () => {
-      dark = !dark;
-      screen.dataset.theme = dark ? 'dark' : 'light';
-      syncThemeButton();
-      onPreferencesChange({ dark, machine: !human });
-    });
     add(actions, toggle);
     recordHeader = add(wrap, el('header', 'record-header'));
     renderHeader(recordHeader);
@@ -484,6 +533,7 @@
     filterInput.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 100); });
     clear.addEventListener('click', () => { clearTimeout(timer); filterInput.value = ''; update(); filterInput.focus(); });
     update();
+    return createThemeSelector(themeToggle, screen, preferences, onThemeChange, colorScheme);
   }
   function renderHeader(wrap) {
     const eyebrow = add(wrap, el('div', 'eyebrow'));
@@ -551,10 +601,6 @@
     const links = add(footer, el('div', 'footer-links'));
     const standards = add(links, el('a', '', 'RDAP specification'));
     standards.href = 'https://www.rfc-editor.org/rfc/rfc9083.html'; standards.target = '_blank'; standards.rel = 'noopener noreferrer';
-    if (KOFI_URL && R.safeURL(KOFI_URL)) {
-      const donate = add(links, el('a', '', 'Support on Ko-fi'));
-      donate.href = R.safeURL(KOFI_URL); donate.target = '_blank'; donate.rel = 'noopener noreferrer';
-    }
     const copy = add(links, el('button', 'copy-url', 'Copy URL'));
     copy.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(location.href); copy.textContent = 'Copied'; }
@@ -562,5 +608,5 @@
     });
   }
 
-  return Object.freeze({ mount, tokenizeJSON, machineOutput, reserveScrollbarGutter, constrainContainer, setExpanded, captureExpansion, restoreExpansion, applyFilterExpansion, applyMode, copyToClipboard, normalizePreferences });
+  return Object.freeze({ mount, tokenizeJSON, machineOutput, reserveScrollbarGutter, constrainContainer, setExpanded, captureExpansion, restoreExpansion, applyFilterExpansion, applyMode, copyToClipboard, normalizePreferences, resolveTheme, createThemeSelector });
 });
