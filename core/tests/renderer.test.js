@@ -3,10 +3,127 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const Renderer = require('../renderer.js');
+const R = require('../rdap.js');
 
 test('shared renderer exports a browser mount point without requiring a framework', () => {
   assert.equal(typeof Renderer.mount, 'function');
   assert.equal(typeof Renderer.tokenizeJSON, 'function');
+});
+
+test('MACHINE display pretty prints JSON while copy retains exact response bytes', () => {
+  const data = { objectClassName: 'ip network', entities: [{ handle: 'H' }] };
+  const raw = ' \n{"objectClassName":"ip network","entities":[{"handle":"H"}]}\r\n';
+  const output = Renderer.machineOutput(data, raw);
+  assert.equal(output.display, JSON.stringify(data, null, 2));
+  assert.notEqual(output.display, raw);
+  assert.equal(output.clipboard, raw);
+});
+
+test('short and long JSON retain valid formatting and bounded display width', () => {
+  for (const size of [1, 24000]) {
+    const data = { objectClassName: 'domain', ldhName: 'example.test', note: 'x'.repeat(size) };
+    const output = Renderer.machineOutput(data, JSON.stringify(data));
+    assert.equal(output.display, JSON.stringify(data, null, 2));
+    assert.equal(output.clipboard, JSON.stringify(data));
+    assert.equal(Renderer.tokenizeJSON(output.display).map(token => token.value).join(''), output.display);
+  }
+});
+
+test('expand and collapse actions reach deeply nested details and filtering restores open state', () => {
+  const detail = (className, title, open) => ({ className, open, querySelector: () => ({ textContent: title }) });
+  const before = [detail('section', 'Contacts', true), detail('entity-card', 'Org · H · admin', false), detail('nested-detail', 'Address', true)];
+  const saved = Renderer.captureExpansion(before);
+  Renderer.setExpanded(before, false);
+  assert.deepEqual(before.map(x => x.open), [false, false, false]);
+  Renderer.applyFilterExpansion(before, true, saved);
+  assert.deepEqual(before.map(x => x.open), [true, true, true]);
+  const rebuilt = [detail('section', 'Contacts', false), detail('entity-card', 'Org · H · admin', true), detail('nested-detail', 'Address', false)];
+  Renderer.applyFilterExpansion(rebuilt, false, saved);
+  assert.deepEqual(rebuilt.map(x => x.open), [true, false, true]);
+  Renderer.setExpanded(rebuilt, true);
+  assert.deepEqual(rebuilt.map(x => x.open), [true, true, true]);
+});
+
+test('expand and collapse support very deep disclosures without layout-dependent assumptions', () => {
+  const nested = Array.from({ length: 256 }, (_, index) => ({ open: index % 2 === 0 }));
+  Renderer.setExpanded(nested, false);
+  assert.equal(nested.some(item => item.open), false);
+  Renderer.setExpanded(nested, true);
+  assert.equal(nested.every(item => item.open), true);
+});
+
+test('mode switch keeps shared controls available and hides HUMAN-only controls', () => {
+  for (const size of [1, 48000]) {
+    const data = { objectClassName: 'domain', ldhName: 'example.test', payload: 'x'.repeat(size) };
+    assert.equal(Renderer.machineOutput(data).display, JSON.stringify(data, null, 2));
+    const humanContent = { hidden: false };
+    const recordHeader = { hidden: false };
+    const machinePane = { hidden: true };
+    const filterControls = { hidden: false };
+    const expandControls = { hidden: false };
+    const parts = { humanContent, recordHeader, machinePane, filterControls, expandControls };
+    Renderer.applyMode(parts, true);
+    assert.deepEqual([humanContent.hidden, recordHeader.hidden, machinePane.hidden, filterControls.hidden, expandControls.hidden], [true, true, false, true, true]);
+    Renderer.applyMode(parts, false);
+    assert.deepEqual([humanContent.hidden, recordHeader.hidden, machinePane.hidden, filterControls.hidden, expandControls.hidden], [false, false, true, false, false]);
+  }
+});
+
+test('scrollbar gutter reservation is stable and restored on teardown', () => {
+  const root = { style: { scrollbarGutter: 'auto' } };
+  const restore = Renderer.reserveScrollbarGutter(root);
+  assert.equal(root.style.scrollbarGutter, 'stable');
+  restore();
+  assert.equal(root.style.scrollbarGutter, 'auto');
+});
+
+test('renderer normalizes and restores a shrink-to-fit host container', () => {
+  const container = { style: { display: 'flex', width: 'max-content', maxWidth: '700px', minWidth: '', boxSizing: '', margin: '4px', padding: '8px' } };
+  const original = { ...container.style };
+  const restore = Renderer.constrainContainer(container);
+  assert.deepEqual(container.style, {
+    display: 'block', width: '100%', maxWidth: 'none', minWidth: '0', boxSizing: 'border-box', margin: '0', padding: '0'
+  });
+  restore();
+  assert.deepEqual(container.style, original);
+});
+
+test('HUMAN panels, toolbar, and MACHINE panel share one full-width box model', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'viewer.css'), 'utf8');
+  const rule = selector => css.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\{([^}]*)\\}`))?.[1] || '';
+  for (const selector of ['.container', '.human-toolbar', '.section', '.machine-view']) {
+    assert.match(rule(selector), /width:100%/);
+    assert.match(rule(selector), /box-sizing:border-box/);
+  }
+  assert.doesNotMatch(rule('.container'), /max-width/);
+  assert.match(css, /padding:22px clamp\(14px,2vw,24px\) 24px/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8'), /scrollbarGutter = 'stable'/);
+});
+
+test('clipboard helper copies the exact supplied response and reports failures', async () => {
+  const raw = ' \n{"x":1}\r\n';
+  let copied;
+  assert.equal(await Renderer.copyToClipboard(raw, { writeText: async text => { copied = text; } }), true);
+  assert.equal(copied, raw);
+  assert.equal(await Renderer.copyToClipboard(raw, { writeText: async () => { throw new Error('blocked'); } }), false);
+});
+
+test('APNIC network fixture retains nested contacts and registry extensions', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/apnic-ip-123-11-12-13.json'), 'utf8'));
+  assert.equal(fixture.objectClassName, 'ip network');
+  assert.equal(fixture.apnic_ext.queryAddress, '123.11.12.13');
+  assert.equal(fixture.entities[0].apnic_ext.registrationStatus, 'ALLOCATED PORTABLE');
+  assert.equal(R.detect(fixture).type, 'ip network');
+  const contacts = R.contactFields(fixture.entities[0].vcardArray);
+  assert.equal(contacts.filter(field => field.key === 'email').length, 2);
+  assert.match(contacts.find(field => field.key === 'adr').value, /South Brisbane/);
+  assert.match(fixture.remarks[0].description[0], /APNIC-managed/);
+});
+
+test('compact entity headings and event rows include contact identity and roles', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/apnic-ip-123-11-12-13.json'), 'utf8'));
+  assert.equal(R.entityHeading(fixture.entities[0]), 'APNIC Network Abuse · IRT-APNIC-AP · abuse');
+  assert.equal(R.eventLabel(fixture.events[0]), 'Registration · 1993-05-01T00:00:00Z');
 });
 
 test('JSON tokenizer preserves nested formatting and separates keys from repeated string values', () => {
@@ -33,16 +150,26 @@ test('JSON tokenizer handles a large object and reconstructs every source charac
 
 test('shared stylesheet contains the common filter, theme, and standards affordances', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'viewer.css'), 'utf8');
-  for (const selector of ['.filter-bar', '.filter-input', '.app[data-theme="dark"]', '.info', '.mode-toggle']) {
+  for (const selector of ['.human-toolbar', '.filter-input', '.app[data-theme="dark"]', '.info', '.toolbar-button', '.copy-raw']) {
     assert.ok(css.includes(selector), selector);
   }
   for (const variable of ['--json-key:', '--json-string:', '--json-number:', '--json-boolean:', '--json-null:']) {
     assert.ok(css.includes(variable), variable);
   }
-  assert.match(css, /\.machine-view\[data-theme="dark"\]/);
+  assert.match(css, /\.app\[data-theme="dark"\] \.machine-view/);
   assert.match(css, /\.machine-json\{[^}]*white-space:pre-wrap/);
   assert.match(css, /\.machine-json\{[^}]*overflow-wrap:anywhere/);
   assert.match(css, /\.machine-json\{[^}]*max-width:100%/);
   assert.match(css, /\.machine-view\{[^}]*overflow-x:hidden/);
+  assert.match(css, /\.human-toolbar\{[^}]*flex-wrap:wrap/);
+  assert.match(css, /\.toolbar-actions\{[^}]*justify-content:flex-end/);
+  assert.match(css, /\.app\{[^}]*min-width:0/);
+  assert.match(css, /:host\{[^}]*width:100%/);
+  assert.match(css, /\.app \[hidden\]\{display:none!important\}/);
+  assert.match(css, /\.machine-json\{[^}]*overflow-wrap:anywhere/);
+  assert.match(css, /\.detail-grid\{[^}]*minmax\(0,1fr\)/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8'), /scrollbarGutter = 'stable'/);
+  assert.match(css, /@media\(max-width:600px\)/);
+  assert.doesNotMatch(css, /\.mode-toggle\{position:fixed/);
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8'), /\.innerHTML\s*=/);
 });

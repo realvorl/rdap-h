@@ -89,9 +89,22 @@
   }
   function contactFields(vcardArray) {
     if (!Array.isArray(vcardArray) || vcardArray[0] !== 'vcard' || !Array.isArray(vcardArray[1])) return [];
-    return vcardArray[1].filter(x => Array.isArray(x) && x.length >= 4 && typeof x[0] === 'string').map(x => ({
-      key: x[0], value: Array.isArray(x[3]) ? x[3].filter(v => typeof v === 'string' && v).join(', ') : String(x[3] ?? ''), params: isObject(x[1]) ? x[1] : {}
-    }));
+    return vcardArray[1].filter(x => Array.isArray(x) && x.length >= 4 && typeof x[0] === 'string').map(x => {
+      const params = isObject(x[1]) ? x[1] : {};
+      let value;
+      if (x[0] === 'adr' && Array.isArray(x[3])) {
+        const label = params.label;
+        value = (Array.isArray(label) ? label.join('\n') : typeof label === 'string' ? label : '') || x[3].flat(Infinity).filter(v => typeof v === 'string' && v).join('\n');
+      } else value = Array.isArray(x[3]) ? x[3].filter(v => typeof v === 'string' && v).join(', ') : String(x[3] ?? '');
+      return { key: x[0], value, params };
+    });
+  }
+  function entityHeading(entity) {
+    const name = contactFields(entity?.vcardArray).find(x => x.key === 'fn' || x.key === 'org')?.value || entity?.name || '';
+    return [name, entity?.handle, ...(Array.isArray(entity?.roles) ? entity.roles : entity?.roles ? [entity.roles] : [])].filter(Boolean).join(' · ') || entity?.objectClassName || 'Entity';
+  }
+  function eventLabel(event) {
+    return [event?.eventAction && formatLabel(event.eventAction), event?.eventDate].filter(Boolean).join(' · ') || 'Event';
   }
   function headline(data, detected) {
     switch (detected.type) {
@@ -146,5 +159,5 @@
     }
     return visit(input) || {};
   }
-  return Object.freeze({ fields, detect, looksLikeRdapUrl, safeURL, formatLabel, contactFields, headline, summary, isObject, filterTree });
+  return Object.freeze({ fields, detect, looksLikeRdapUrl, safeURL, formatLabel, contactFields, entityHeading, eventLabel, headline, summary, isObject, filterTree });
 });

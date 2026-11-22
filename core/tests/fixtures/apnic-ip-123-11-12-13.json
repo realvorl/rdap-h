@@ -1,0 +1,44 @@
+{
+  "rdapConformance": ["rdap_level_0", "cidr0"],
+  "objectClassName": "ip network",
+  "handle": "123.0.0.0 - 123.255.255.255",
+  "startAddress": "123.0.0.0",
+  "endAddress": "123.255.255.255",
+  "ipVersion": "v4",
+  "name": "APNIC-AP",
+  "type": "ALLOCATED PORTABLE",
+  "country": "AU",
+  "parentHandle": "0.0.0.0 - 255.255.255.255",
+  "status": ["active"],
+  "remarks": [{
+    "title": "Remarks",
+    "description": ["This is an APNIC-managed range. Contact the network operator for further information."]
+  }],
+  "links": [{
+    "value": "https://rdap.apnic.net/ip/123.11.12.13",
+    "rel": "self",
+    "href": "https://rdap.apnic.net/ip/123.11.12.13",
+    "type": "application/rdap+json"
+  }],
+  "events": [
+    {"eventAction": "registration", "eventDate": "1993-05-01T00:00:00Z"},
+    {"eventAction": "last changed", "eventDate": "2024-01-01T00:00:00Z"}
+  ],
+  "entities": [{
+    "objectClassName": "entity",
+    "handle": "IRT-APNIC-AP",
+    "roles": ["abuse"],
+    "vcardArray": ["vcard", [
+      ["version", {}, "text", "4.0"],
+      ["fn", {}, "text", "APNIC Network Abuse"],
+      ["org", {}, "text", "Asia Pacific Network Information Centre"],
+      ["email", {"type": "work"}, "text", "helpdesk@apnic.net"],
+      ["email", {"type": "abuse"}, "text", "abuse@apnic.net"],
+      ["adr", {"label": "6 Cordelia Street\nSouth Brisbane QLD 4101\nAustralia"}, "text", ["", "", "6 Cordelia Street", "South Brisbane", "QLD", "4101", "Australia"]]
+    ]],
+    "remarks": [{"description": ["Please report network abuse to the listed contact."]}],
+    "apnic_ext": {"source": "APNIC", "registrationStatus": "ALLOCATED PORTABLE"}
+  }],
+  "cidr0_cidrs": [{"v4prefix": "123.0.0.0", "length": 8}],
+  "apnic_ext": {"source": "APNIC", "queryAddress": "123.11.12.13"}
+}

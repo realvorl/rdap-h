@@ -4,7 +4,7 @@ A dependency-free, read-only RDAP presentation with three parts: shared parsing 
 
 ## Repository layout
 
-- `core/` owns RDAP recognition, field metadata and RFC references, safe links, summaries, filtering, the reusable shadow-DOM renderer, JSON tokenizer, and its single shared stylesheet. HUMAN and MACHINE modes both use this renderer; MACHINE preserves the raw text and offers a copy-raw control.
+- `core/` owns RDAP recognition, field metadata and RFC references, safe links, summaries, filtering, the reusable shadow-DOM renderer, JSON tokenizer, and its single shared stylesheet. HUMAN and MACHINE modes both use this renderer; MACHINE displays indented JSON while its copy-raw control retains the exact server response.
 - `extension/` owns the Manifest V3 integration, original-document HUMAN/MACHINE switching, icons, and a small build script. The generated `extension/bundle/` contains local copies of core assets required by browser extension packaging; do not edit those generated copies directly.
 - `web/` owns the landing page, IP/URL detection, client-side IANA IPv4/IPv6 bootstrap resolution, RDAP fetches, share links, history navigation, and visible error handling. `web/build.mjs` assembles a deployable site from the web files and only the required core assets.
 - `.github/workflows/pages.yml` tests the components and publishes the generated `site/` artifact on pushes to `main` or manual dispatch. `web/CNAME` configures `rdap-h.de`.
@@ -32,6 +32,8 @@ node web/build.mjs
 node --test core/tests/*.test.js extension/tests/*.test.js web/tests/*.test.js
 node --check core/rdap.js && node --check core/renderer.js && node --check web/src/app.js && node --check extension/src/content.js && node --check extension/build.mjs && node --check web/build.mjs
 ```
+
+The shared renderer regression tests include the APNIC `123.11.12.13` network response shape, contact details, repeated emails, labeled postal address, events, remarks, links, registry-specific extension fields, expansion state, filtering, mode switching, and exact-response clipboard copying. HUMAN and MACHINE share a full-width, margin-padded container and toolbar with a stable viewport scrollbar gutter. MACHINE shows only formatted JSON, its copy control, and the theme/mode controls; HUMAN provides Expand all and Collapse all for nested disclosures.
 
 Use Node.js 20 or newer. Follow the existing JavaScript style: two spaces, single quotes, semicolons, and camelCase. Add behavior tests beside the component in `core/tests/`, `extension/tests/`, or `web/tests/`. Run both build scripts before tests that compare generated extension assets with core sources.
 

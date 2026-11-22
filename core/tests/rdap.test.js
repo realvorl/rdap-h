@@ -36,6 +36,16 @@ test('decodes jCard contact properties and preserves parameters', () => {
   assert.equal(x.find(p => p.key === 'fn').value, 'Example Org');
   assert.deepEqual(x.find(p => p.key === 'email').params, {type:'work'});
 });
+test('preserves repeated emails and formats jCard postal address from label', () => {
+  const vcard = ['vcard', [
+    ['email', {type:'work'}, 'text', 'one@example.net'],
+    ['email', {type:'abuse'}, 'text', 'two@example.net'],
+    ['adr', {label:'Line one\nLine two'}, 'text', ['', '', 'street', 'city', '', '', 'country']]
+  ]];
+  const fields = R.contactFields(vcard);
+  assert.deepEqual(fields.filter(x => x.key === 'email').map(x => x.value), ['one@example.net', 'two@example.net']);
+  assert.equal(fields.find(x => x.key === 'adr').value, 'Line one\nLine two');
+});
 test('derives a compact IP network summary', () => {
   const data = {objectClassName:'ip network', name:'TEST-NET', handle:'NET-TEST', startAddress:'192.0.2.0', endAddress:'192.0.2.255', status:['active']};
   assert.equal(R.headline(data, R.detect(data)), 'TEST-NET');
