@@ -1,0 +1,27 @@
+# Generated frontend and extension bundles
+/site/
+/extension/bundle/
+/dist/
+/rdap-human-viewer-v*.zip
+
+# Temporary files and caches
+*.tmp
+*.temp
+*.swp
+*~
+*.log
+.cache/
+.npm/
+.pytest_cache/
+coverage/
+node_modules/
+.DS_Store
+
+# Local credentials and private keys
+.env
+.env.*
+!.env.example
+credentials.json
+secrets.json
+*.pem
+*.key
