@@ -6,7 +6,7 @@ A dependency-free, read-only RDAP presentation with three parts: shared parsing 
 
 - `core/` owns RDAP recognition, field metadata and RFC references, safe links, summaries, filtering, the reusable shadow-DOM renderer, JSON tokenizer, and its single shared stylesheet. HUMAN and MACHINE modes both use this renderer; MACHINE displays indented JSON while its copy-raw control retains the exact server response.
 - `extension/` owns the Manifest V3 integration, original-document HUMAN/MACHINE switching, icons, and a small build script. The generated `extension/bundle/` contains local copies of core assets required by browser extension packaging; do not edit those generated copies directly.
-- `web/` owns the landing page, IP/URL detection, client-side IANA IPv4/IPv6 bootstrap resolution, RDAP fetches, share links, history navigation, and visible error handling. Its results toolbar includes a base-path-aware New lookup link; the extension does not show it. `web/build.mjs` assembles a deployable site from the web files and only the required core assets.
+- `web/` owns the landing page, input detection, client-side IANA IPv4/IPv6/domain/ASN bootstrap resolution, RDAP fetches, share links, history navigation, and visible error handling. Its results toolbar includes a base-path-aware New lookup link; the extension does not show it. `web/build.mjs` assembles a deployable site from the web files and only the required core assets.
 - `.github/workflows/pages.yml` tests the components and publishes the generated `site/` artifact on pushes to `main` or manual dispatch. `web/CNAME` configures `rdap-h.de`.
 
 ## Build, preview, and install
@@ -39,7 +39,7 @@ Use Node.js 20 or newer. Follow the existing JavaScript style: two spaces, singl
 
 ## Behavior and security
 
-The extension runs only on top-level, browser-exposed RDAP JSON documents. The web app accepts public IPv4/IPv6 addresses or complete HTTP(S) RDAP URLs. For IP addresses it fetches the matching IANA bootstrap registry, applies longest-prefix matching per RFC 9224, and then fetches the selected HTTPS RDAP endpoint; bootstrap and RDAP requests run in the user's browser and require suitable CORS headers. Both frontends use the same renderer, syntax highlighting, filter, theme controls, RFC explanations, safe URL checks, and styling. JSON highlighting creates spans with `textContent`; no response data is inserted with `innerHTML`. The web copy-raw control retains the exact fetched response text; the extension copies the exact JSON text exposed by the browser document. No analytics, tracking, backend, or external script dependencies are used.
+The extension runs only on top-level, browser-exposed RDAP JSON documents. The web app accepts public IPv4/IPv6 addresses, domain names, ASNs, or complete HTTPS RDAP URLs. It resolves IP prefixes, DNS suffixes, and ASN ranges from the corresponding IANA bootstrap registry, then tries HTTPS service URLs in order. Bootstrap requests are cached in memory with expiry; bootstrap and RDAP requests run in the user's browser and require suitable CORS headers. No search API is used. Both frontends use the same renderer, syntax highlighting, filter, theme controls, RFC explanations, safe URL checks, and styling. JSON highlighting creates spans with `textContent`; no response data is inserted with `innerHTML`. The web copy-raw control retains the exact fetched response text; the extension copies the exact JSON text exposed by the browser document. No analytics, tracking, backend, or external script dependencies are used.
 
 ## Release checks
 

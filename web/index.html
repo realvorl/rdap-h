@@ -23,12 +23,12 @@
     <h1 class="brand">RDAP Human Viewer</h1>
     <p class="tagline">Look up registration data in a clear, readable view.</p>
     <form id="lookup-form" role="search">
-      <input id="rdap-url" name="url" type="text" inputmode="url" placeholder="IP address or full HTTPS RDAP URL" aria-label="IPv4 address, IPv6 address, or full HTTPS RDAP URL" aria-describedby="lookup-status lookup-error" required>
+      <input id="rdap-url" name="url" type="text" inputmode="url" placeholder="IP address, domain, ASN, or full HTTPS RDAP URL" aria-label="IPv4 or IPv6 address, domain name, ASN, or full HTTPS RDAP URL" aria-describedby="lookup-status lookup-error" required>
       <button type="submit">View</button>
     </form>
     <p id="lookup-status" role="status" aria-live="polite" hidden></p>
     <p id="lookup-error" class="error" role="alert" hidden></p>
-    <p class="hint">Enter a public IP address or a complete RDAP URL. IP lookups use the IANA bootstrap registry and run in your browser.</p>
+    <p class="hint">Enter a public IP address, domain name, ASN, or complete HTTPS RDAP URL. Lookups use IANA bootstrap registries and run in your browser.</p>
   </main>
   <div id="viewer-root" hidden></div>
   <script src="../core/rdap.js"></script>

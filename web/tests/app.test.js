@@ -5,14 +5,13 @@ const path = require('node:path');
 const Pages = require('../src/app.js');
 const RDAP = require('../../core/rdap.js');
 
-test('accepts full HTTP and HTTPS RDAP URLs across registry hosts', () => {
+test('accepts complete HTTPS RDAP URLs across registry hosts', () => {
   assert.equal(Pages.validateEndpoint('https://rdap.arin.net/registry/ip/8.8.8.8').url, 'https://rdap.arin.net/registry/ip/8.8.8.8');
   assert.equal(Pages.validateEndpoint('https://rdap.db.ripe.net/ip/8.8.8.8').url, 'https://rdap.db.ripe.net/ip/8.8.8.8');
-  assert.equal(Pages.validateEndpoint('http://example.test/custom/rdap').url, 'http://example.test/custom/rdap');
 });
 
 test('rejects incomplete, non-HTTP, and credentialed endpoint URLs', () => {
-  for (const value of ['', 'rdap.arin.net/ip/8.8.8.8', 'javascript:alert(1)', 'ftp://example.test/', 'https://user:pass@example.test/']) {
+  for (const value of ['', 'rdap.arin.net/ip/8.8.8.8', 'javascript:alert(1)', 'ftp://example.test/', 'http://rdap.example/ip/8.8.8.8', 'https://user:pass@example.test/']) {
     assert.ok(Pages.validateEndpoint(value).error, value);
   }
 });
@@ -31,11 +30,33 @@ test('detects and normalizes public IPv4 and IPv6 addresses', () => {
   assert.equal(Pages.parseIPv6('::ffff:192.0.2.1').address, '::ffff:c000:201');
 });
 
+test('detects domains, subdomains, trailing dots, and internationalized names', () => {
+  assert.deepEqual(Pages.classifyInput(' example.com '), { type: 'domain', domain: 'example.com' });
+  assert.equal(Pages.classifyInput('www.example.co.uk').domain, 'www.example.co.uk');
+  assert.equal(Pages.classifyInput('münich.de').domain, 'xn--mnich-kva.de');
+  assert.equal(Pages.classifyInput('example.com.').domain, 'example.com');
+  for (const value of ['bad..example', '-bad.example', 'bad_.example', 'example.com/path', 'example.com:443']) {
+    assert.equal(Pages.classifyInput(value).type, undefined, value);
+  }
+});
+
+test('detects ASNs and validates decimal range and reserved values', () => {
+  assert.equal(Pages.classifyInput('AS15169').number, 15169);
+  assert.equal(Pages.classifyInput(' 15169 ').number, 15169);
+  assert.equal(Pages.classifyInput('AS1').number, 1);
+  assert.match(Pages.classifyInput('AS0').error, /reserved/);
+  assert.match(Pages.classifyInput('23456').error, /reserved/);
+  assert.match(Pages.classifyInput('AS64512').error, /private use/);
+  assert.match(Pages.classifyInput('AS4294967295').error, /reserved/);
+  assert.match(Pages.classifyInput('4294967296').error, /between 1 and 4294967295/);
+  assert.match(Pages.classifyInput('AS015169').error, /leading zeroes/);
+});
+
 test('reports malformed, private, and reserved IP inputs', () => {
   for (const [input, message] of [
     ['8.8.8.999', /valid IPv4/],
     ['2001:4860::zzzz', /valid IPv6/],
-    ['not an address', /IPv4 address, IPv6 address/],
+    ['not an address', /IPv4 or IPv6 address/],
     ['10.1.2.3', /private/],
     ['192.0.2.4', /reserved/],
     ['127.0.0.1', /reserved/],
@@ -43,6 +64,8 @@ test('reports malformed, private, and reserved IP inputs', () => {
     ['fe80::1', /link-local/],
     ['2001:db8::1', /reserved/]
   ]) assert.match(Pages.classifyInput(input).error, message, input);
+  assert.match(Pages.classifyInput('8.8.8').error, /valid IPv4/);
+  assert.equal(Pages.classifyInput('15169').type, 'asn', 'bare numeric ASNs must not be confused with malformed dotted IPs');
 });
 
 test('resolves IANA bootstrap prefixes with longest-prefix matching', () => {
@@ -57,6 +80,29 @@ test('resolves IANA bootstrap prefixes with longest-prefix matching', () => {
     [['2001:4860:4860::/48'], ['https://v6-specific.example/']]
   ] };
   assert.deepEqual(Pages.resolveBootstrapServices(ipv6Registry, 'ipv6', '2001:4860:4860::8888'), ['https://v6-specific.example/']);
+});
+
+test('resolves domain suffixes label-wise using the longest matching DNS suffix', () => {
+  const registry = { services: [
+    [[''], ['https://root.example/']],
+    [['com'], ['https://tld.example/']],
+    [['example.com'], ['http://insecure.example/', 'https://exact.example/']],
+    [['ample.com'], ['https://wrong-label.example/']]
+  ] };
+  assert.deepEqual(Pages.resolveDomainBootstrapServices(registry, 'api.example.com'), ['https://exact.example/']);
+  assert.deepEqual(Pages.resolveDomainBootstrapServices(registry, 'other.com'), ['https://tld.example/']);
+  assert.deepEqual(Pages.resolveDomainBootstrapServices(registry, 'other.net'), ['https://root.example/']);
+  assert.deepEqual(Pages.resolveDomainBootstrapServices({ services:[[['bücher.de'], ['https://idn.example/']]] }, 'shop.xn--bcher-kva.de'), ['https://idn.example/']);
+});
+
+test('resolves ASN ranges inclusively and keeps all HTTPS service URLs', () => {
+  const registry = { services: [
+    [['64496-64496', '64500-64510'], ['https://asn-one.example/','https://asn-two.example/']],
+    [['64511-64511'], ['http://insecure.example/']]
+  ] };
+  assert.deepEqual(Pages.resolveAsnBootstrapServices(registry, 64496), ['https://asn-one.example/', 'https://asn-two.example/']);
+  assert.deepEqual(Pages.resolveAsnBootstrapServices(registry, 64510), ['https://asn-one.example/', 'https://asn-two.example/']);
+  assert.deepEqual(Pages.resolveAsnBootstrapServices(registry, 64511), []);
 });
 
 test('resolves IPs through the correct IANA bootstrap and constructs RDAP IP URLs', async () => {
@@ -85,12 +131,29 @@ test('resolves IPs through the correct IANA bootstrap and constructs RDAP IP URL
   assert.equal(v6.url, 'https://v6-rdap.example/ip/2001:4860:4860::8888');
 });
 
+test('resolves IDN domains and ASNs through their IANA registries using RFC 9082 paths', async () => {
+  const calls = [];
+  const cache = new Map();
+  const fetchBootstrap = async url => {
+    calls.push(url);
+    if (url.endsWith('/dns.json')) return { ok: true, json: async () => ({ services: [[['de'], ['https://rdap.example/base/']]] }) };
+    return { ok: true, json: async () => ({ services: [[['15100-15200'], ['https://asn.example/rdap']]] }) };
+  };
+  const domain = await Pages.resolveInput('münich.de', fetchBootstrap, cache);
+  assert.equal(domain.url, 'https://rdap.example/base/domain/xn--mnich-kva.de');
+  assert.deepEqual(domain.urls, [domain.url]);
+  const asn = await Pages.resolveInput('AS15169', fetchBootstrap, cache);
+  assert.equal(asn.url, 'https://asn.example/rdap/autnum/15169');
+  assert.deepEqual(calls, ['https://data.iana.org/rdap/dns.json', 'https://data.iana.org/rdap/asn.json']);
+});
+
 test('keeps complete RDAP URL input on the existing path without bootstrap requests', async () => {
   const result = await Pages.resolveInput('https://rdap.arin.net/registry/ip/8.8.8.8', async () => {
     throw new Error('bootstrap must not be fetched for complete URLs');
   }, new Map());
   assert.equal(result.type, 'url');
   assert.equal(result.url, 'https://rdap.arin.net/registry/ip/8.8.8.8');
+  assert.deepEqual(result.urls, [result.url]);
 });
 
 test('reports unavailable bootstrap registries and unallocated address ranges', async () => {
@@ -102,6 +165,48 @@ test('reports unavailable bootstrap registries and unallocated address ranges', 
     Pages.resolveInput('8.8.8.8', async () => ({ ok: true, json: async () => ({ services: [] }) }), new Map()),
     /IANA has no HTTPS RDAP server listed/
   );
+  await assert.rejects(Pages.resolveInput('example.com', async () => { throw new TypeError('offline'); }, new Map()), /IANA DNS RDAP bootstrap registry is unavailable/);
+  await assert.rejects(Pages.resolveInput('AS15169', async () => ({ok:true,json:async()=>({services:[]})}), new Map()), /IANA has no HTTPS RDAP server listed for AS15169/);
+});
+
+test('expires cached bootstrap responses and supports a bounded registry cache', async () => {
+  const cache = new Map();
+  let calls = 0;
+  const fakeFetch = async () => ({ ok:true, headers:{get:()=>'max-age=60'}, json:async()=>({services:[]}) });
+  await Pages.getBootstrap('dns', async (...args) => { calls++; return fakeFetch(...args); }, cache);
+  assert.equal(cache.size, 1);
+  cache.get('dns').expiresAt = 0;
+  await Pages.getBootstrap('dns', async (...args) => { calls++; return fakeFetch(...args); }, cache);
+  assert.equal(calls, 2);
+  for (const name of ['ipv4', 'ipv6', 'asn']) await Pages.getBootstrap(name, async (...args) => { calls++; return fakeFetch(...args); }, cache);
+  assert.ok(cache.size <= 4);
+});
+
+test('falls back across failed HTTPS service URLs and rejects insecure redirects', async () => {
+  const calls = [];
+  const result = await Pages.fetchResolved(['https://first.example/domain/example.com', 'https://second.example/domain/example.com'], async url => {
+    calls.push(url);
+    if (calls.length === 1) return { ok:false, status:503, url };
+    return { ok:true, url, text:async()=>'{"objectClassName":"domain","ldhName":"example.com"}' };
+  }, RDAP);
+  assert.equal(result.endpoint, 'https://second.example/domain/example.com');
+  assert.equal(calls.length, 2);
+  await assert.rejects(Pages.fetchResolved('https://secure.example/ip/8.8.8.8', async url => ({
+    ok:true, url:'http://insecure.example/ip/8.8.8.8', text:async()=>'{"objectClassName":"ip network"}'
+  }), RDAP), /redirected to an insecure/);
+});
+
+test('reports CORS-like failures after trying every selected RDAP service', async () => {
+  const attempted = [];
+  await assert.rejects(Pages.fetchResolved(['https://one.example/ip/8.8.8.8', 'https://two.example/ip/8.8.8.8'], async url => {
+    attempted.push(url);
+    throw new TypeError('Failed to fetch');
+  }, RDAP), error => {
+    assert.match(error.message, /All 2 RDAP service URLs failed/);
+    assert.equal(error.networkError, true);
+    return true;
+  });
+  assert.equal(attempted.length, 2);
 });
 
 test('generates a directly shareable URL and preserves unrelated query parameters', () => {
@@ -146,7 +251,7 @@ test('reports empty, malformed, non-RDAP, and oversized responses', () => {
 
 test('web entry point loads shared modules through local relative paths', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  assert.match(html, /type="text"[^>]*IPv4 address/);
+  assert.match(html, /type="text"[^>]*domain name, ASN/);
   assert.match(html, /src="\.\.\/core\/rdap\.js"/);
   assert.match(html, /src="\.\.\/core\/renderer\.js"/);
   assert.match(html, /src="src\/app\.js"/);

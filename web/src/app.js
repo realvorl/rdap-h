@@ -7,17 +7,23 @@
   'use strict';
   const BOOTSTRAP_URLS = Object.freeze({
     ipv4: 'https://data.iana.org/rdap/ipv4.json',
-    ipv6: 'https://data.iana.org/rdap/ipv6.json'
+    ipv6: 'https://data.iana.org/rdap/ipv6.json',
+    dns: 'https://data.iana.org/rdap/dns.json',
+    asn: 'https://data.iana.org/rdap/asn.json'
   });
+  const ASN_MAX = 4294967295n;
+  const BOOTSTRAP_TTL = 6 * 60 * 60 * 1000;
+  const BOOTSTRAP_MAX_AGE = 24 * 60 * 60 * 1000;
+  const MAX_BOOTSTRAPS = 4;
   const bootstrapCache = new Map();
 
   function validateEndpoint(value) {
     try {
       const url = new URL(String(value).trim());
-      if (!['http:', 'https:'].includes(url.protocol)) return { error: 'Enter an RDAP URL beginning with https:// or http://.' };
+      if (url.protocol !== 'https:') return { error: 'Enter an RDAP URL beginning with https://.' };
       if (!url.hostname || url.username || url.password) return { error: 'Enter a public RDAP URL without embedded credentials.' };
       return { url: url.href };
-    } catch { return { error: 'Enter a complete RDAP URL, such as https://rdap.arin.net/registry/ip/8.8.8.8.' }; }
+    } catch { return { error: 'Enter a complete HTTPS RDAP URL, such as https://rdap.arin.net/registry/ip/8.8.8.8.' }; }
   }
   function parseIPv4(value) {
     const parts = String(value).split('.');
@@ -98,23 +104,57 @@
     if (ip.family === 'ipv6' && !prefixMatches(ip.value, parseCidr('2000::/3', 'ipv6'))) return 'reserved or non-public';
     return null;
   }
+  function parseASN(value) {
+    const match = String(value).match(/^(?:AS)?(\d+)$/i);
+    if (!match || (match[1].length > 1 && match[1][0] === '0')) return null;
+    let number;
+    try { number = BigInt(match[1]); } catch { return null; }
+    if (number > ASN_MAX) return { error: 'An ASN must be a decimal number between 1 and 4294967295.' };
+    if (number === 0n || number === 23456n || number === 65535n || number === 4294967295n) {
+      return { error: `AS${number} is reserved and cannot be looked up as a public autonomous system.` };
+    }
+    if ((number >= 64496n && number <= 64511n) || (number >= 64512n && number <= 65534n) ||
+        (number >= 65536n && number <= 65551n) || (number >= 4200000000n && number <= 4294967294n)) {
+      return { error: `AS${number} is reserved for documentation or private use.` };
+    }
+    return { type: 'asn', number: Number(number), value: number };
+  }
+  function parseDomain(value) {
+    const text = String(value).trim();
+    if (!text || /[\s\/#?@:%\\]/u.test(text)) return null;
+    try {
+      const ascii = new URL(`https://${text}/`).hostname.toLowerCase().replace(/\.$/, '');
+      const labels = ascii.split('.');
+      if (!ascii || ascii.length > 253 || labels.some(label => label.length < 1 || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) return null;
+      if (parseIPv4(ascii)) return null;
+      return { type: 'domain', domain: ascii };
+    } catch { return null; }
+  }
   function classifyInput(value) {
     const text = String(value ?? '').trim();
-    if (!text) return { error: 'Enter an IPv4 address, IPv6 address, or complete HTTPS RDAP URL.' };
+    if (!text) return { error: 'Enter an IPv4 or IPv6 address, domain name, ASN, or complete HTTPS RDAP URL.' };
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) {
       const checked = validateEndpoint(text);
       return checked.error ? checked : { type: 'url', url: checked.url };
     }
     let ip = parseIPv4(text);
-    if (!ip && /^[\d.]+$/.test(text)) return { error: 'Enter a valid IPv4 address with four decimal octets.' };
+    if (!ip && /^[\d.]+$/.test(text) && text.includes('.')) return { error: 'Enter a valid IPv4 address with four decimal octets.' };
     if (!ip && text.includes(':')) {
       ip = parseIPv6(text);
       if (!ip) return { error: 'Enter a valid IPv6 address using hexadecimal groups.' };
     }
-    if (!ip) return { error: 'Enter an IPv4 address, IPv6 address, or complete HTTPS RDAP URL.' };
-    const reason = nonPublicReason(ip);
-    if (reason) return { error: `This ${ip.family === 'ipv4' ? 'IPv4' : 'IPv6'} address is ${reason}; only public addresses can be looked up.` };
-    return { type: 'ip', ...ip };
+    if (ip) {
+      const reason = nonPublicReason(ip);
+      if (reason) return { error: `This ${ip.family === 'ipv4' ? 'IPv4' : 'IPv6'} address is ${reason}; only public addresses can be looked up.` };
+      return { type: 'ip', ...ip };
+    }
+    const asn = parseASN(text);
+    if (asn) return asn;
+    if (/^(?:AS)?\d+$/i.test(text)) return { error: 'Enter an ASN between 1 and 4294967295, without leading zeroes.' };
+    if (/^AS/i.test(text)) return { error: 'Enter an ASN as AS followed by decimal digits, such as AS15169.' };
+    const domain = parseDomain(text);
+    if (domain) return domain;
+    return { error: 'Enter a valid IPv4 or IPv6 address, domain name, ASN, or complete HTTPS RDAP URL.' };
   }
   function resolveBootstrapServices(registry, family, address) {
     const parsedAddress = typeof address === 'bigint' ? address : (family === 'ipv4' ? parseIPv4(address) : parseIPv6(address))?.value;
@@ -128,44 +168,136 @@
         if (!prefix || !prefixMatches(parsedAddress, prefix)) continue;
         if (prefix.bits > longest) { longest = prefix.bits; urls.length = 0; }
         if (prefix.bits === longest) {
-          for (const candidate of service[1]) {
-            try {
-              const base = new URL(candidate);
-              if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) continue;
-              if (!base.pathname.endsWith('/')) base.pathname += '/';
-              if (!urls.includes(base.href)) urls.push(base.href);
-            } catch { /* Ignore malformed bootstrap entries. */ }
-          }
+          urls.push(...serviceURLs(service[1]));
         }
       }
     }
+    return [...new Set(urls)];
+  }
+  function serviceURLs(candidates) {
+    const urls = [];
+    if (!Array.isArray(candidates)) return urls;
+    for (const candidate of candidates) {
+      try {
+        const base = new URL(candidate);
+        if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) continue;
+        if (!base.pathname.endsWith('/')) base.pathname += '/';
+        if (!urls.includes(base.href)) urls.push(base.href);
+      } catch { /* Ignore malformed or non-HTTPS bootstrap entries. */ }
+    }
     return urls;
   }
-  async function getBootstrap(family, fetchImpl = globalThis.fetch, cache = bootstrapCache) {
-    if (cache.has(family)) return cache.get(family);
-    const promise = (async () => {
+  function resolveDomainBootstrapServices(registry, domain) {
+    const target = String(domain).toLowerCase().replace(/\.$/, '');
+    if (!target || !Array.isArray(registry?.services)) return [];
+    let longest = -1;
+    const urls = [];
+    for (const service of registry.services) {
+      if (!Array.isArray(service) || !Array.isArray(service[0]) || !Array.isArray(service[1])) continue;
+      for (const entry of service[0]) {
+        if (typeof entry !== 'string') continue;
+        const suffix = entry === '' ? '' : parseDomain(entry)?.domain;
+        if (suffix === undefined) continue;
+        if (suffix && target !== suffix && !target.endsWith('.' + suffix)) continue;
+        const labels = suffix ? suffix.split('.').length : 0;
+        if (labels < longest) continue;
+        if (labels > longest) { longest = labels; urls.length = 0; }
+        urls.push(...serviceURLs(service[1]));
+      }
+    }
+    return [...new Set(urls)];
+  }
+  function resolveAsnBootstrapServices(registry, asn) {
+    let number;
+    try { number = typeof asn === 'bigint' ? asn : BigInt(asn); } catch { return []; }
+    if (!Array.isArray(registry?.services)) return [];
+    const urls = [];
+    for (const service of registry.services) {
+      if (!Array.isArray(service) || !Array.isArray(service[0]) || !Array.isArray(service[1])) continue;
+      for (const range of service[0]) {
+        const match = typeof range === 'string' && range.match(/^(\d+)-(\d+)$/);
+        if (!match) continue;
+        const start = BigInt(match[1]), end = BigInt(match[2]);
+        if (start <= number && number <= end) urls.push(...serviceURLs(service[1]));
+      }
+    }
+    return [...new Set(urls)];
+  }
+  function lookupURLs(bases, operation, target) {
+    const urls = [];
+    for (const base of bases) {
+      try {
+        const segment = operation === 'ip' && String(target).includes(':') ? String(target) : encodeURIComponent(String(target));
+        const url = new URL(`${operation}/${segment}`, base);
+        if (url.protocol === 'https:' && !url.username && !url.password) urls.push(url.href);
+      } catch { /* Ignore invalid constructed endpoints. */ }
+    }
+    return [...new Set(urls)];
+  }
+  function bootstrapExpiry(response) {
+    const now = Date.now();
+    let lifetime = BOOTSTRAP_TTL;
+    const cacheControl = response.headers?.get?.('cache-control') || '';
+    const maxAge = cacheControl.match(/(?:^|,)\s*max-age=(\d+)/i);
+    if (/\bno-store\b|\bno-cache\b/i.test(cacheControl)) lifetime = 0;
+    else if (maxAge) lifetime = Math.min(BOOTSTRAP_MAX_AGE, Number(maxAge[1]) * 1000);
+    else {
+      const expires = Date.parse(response.headers?.get?.('expires') || '');
+      if (Number.isFinite(expires)) lifetime = Math.min(BOOTSTRAP_MAX_AGE, Math.max(0, expires - now));
+    }
+    return now + lifetime;
+  }
+  async function getBootstrap(name, fetchImpl = globalThis.fetch, cache = bootstrapCache) {
+    const cached = cache.get(name);
+    if (cached && cached.expiresAt > Date.now()) return cached.promise;
+    if (cached) cache.delete(name);
+    const entry = { expiresAt: Infinity, promise: null };
+    entry.promise = (async () => {
       let response;
-      try { response = await fetchImpl(BOOTSTRAP_URLS[family], { headers: { Accept: 'application/json' }, cache: 'default' }); }
-      catch { throw new Error(`The IANA ${family.toUpperCase()} RDAP bootstrap registry is unavailable. Check your connection or CORS access, or enter a complete HTTPS RDAP URL.`); }
-      if (!response.ok) throw new Error(`The IANA ${family.toUpperCase()} RDAP bootstrap registry returned HTTP ${response.status}.`);
+      try { response = await fetchImpl(BOOTSTRAP_URLS[name], { headers: { Accept: 'application/json' }, cache: 'default', redirect: 'follow' }); }
+      catch { throw new Error(`The IANA ${name.toUpperCase()} RDAP bootstrap registry is unavailable. Check your connection or CORS access, or enter a complete HTTPS RDAP URL.`); }
+      if (response.url && new URL(response.url).protocol !== 'https:') throw new Error(`The IANA ${name.toUpperCase()} RDAP bootstrap registry redirected to an insecure URL.`);
+      if (!response.ok) throw new Error(`The IANA ${name.toUpperCase()} RDAP bootstrap registry returned HTTP ${response.status}.`);
       try {
         const registry = await response.json();
         if (!Array.isArray(registry?.services)) throw new Error('Invalid bootstrap data');
+        entry.expiresAt = bootstrapExpiry(response);
         return registry;
-      } catch { throw new Error(`The IANA ${family.toUpperCase()} RDAP bootstrap registry returned invalid data.`); }
+      } catch (error) {
+        if (error.message?.startsWith('The IANA')) throw error;
+        throw new Error(`The IANA ${name.toUpperCase()} RDAP bootstrap registry returned invalid data.`);
+      }
     })();
-    cache.set(family, promise);
-    try { return await promise; }
-    catch (error) { cache.delete(family); throw error; }
+    cache.set(name, entry);
+    while (cache.size > MAX_BOOTSTRAPS) cache.delete(cache.keys().next().value);
+    try { return await entry.promise; }
+    catch (error) { if (cache.get(name) === entry) cache.delete(name); throw error; }
   }
   async function resolveInput(value, fetchImpl = globalThis.fetch, cache = bootstrapCache) {
     const input = classifyInput(value);
     if (input.error) throw new Error(input.error);
-    if (input.type === 'url') return { url: input.url, type: 'url' };
-    const registry = await getBootstrap(input.family, fetchImpl, cache);
-    const bases = resolveBootstrapServices(registry, input.family, input.value);
-    if (!bases.length) throw new Error(`IANA has no HTTPS RDAP server listed for ${input.address}. The address may be unallocated; try a complete HTTPS RDAP URL if you have one.`);
-    return { url: new URL('ip/' + input.address, bases[0]).href, type: 'ip', address: input.address, family: input.family };
+    if (input.type === 'url') return { url: input.url, urls: [input.url], type: 'url' };
+    const registryName = input.type === 'ip' ? input.family : input.type === 'domain' ? 'dns' : 'asn';
+    const registry = await getBootstrap(registryName, fetchImpl, cache);
+    let bases;
+    let operation;
+    let target;
+    if (input.type === 'ip') {
+      bases = resolveBootstrapServices(registry, input.family, input.value);
+      operation = 'ip'; target = input.address;
+    } else if (input.type === 'domain') {
+      bases = resolveDomainBootstrapServices(registry, input.domain);
+      operation = 'domain'; target = input.domain;
+    } else {
+      bases = resolveAsnBootstrapServices(registry, input.value);
+      operation = 'autnum'; target = input.number;
+    }
+    const urls = lookupURLs(bases, operation, target);
+    if (!urls.length) {
+      const label = input.type === 'ip' ? input.address : input.type === 'domain' ? input.domain : `AS${input.number}`;
+      throw new Error(`IANA has no HTTPS RDAP server listed for ${label}. The registry may not support this lookup yet; try a complete HTTPS RDAP URL if you have one.`);
+    }
+    return { url: urls[0], urls, type: input.type, ...(input.type === 'ip' ? { address: input.address, family: input.family } : input.type === 'domain' ? { domain: input.domain } : { number: input.number }) };
   }
   function parseResponse(text, rdap) {
     if (typeof text !== 'string' || !text.trim()) throw new Error('The endpoint returned an empty response.');
@@ -176,6 +308,37 @@
     const kind = rdap.detect(data);
     if (!kind) throw new Error('The URL did not return a recognized RDAP JSON response.');
     return { data, kind, raw: text };
+  }
+  async function fetchResolved(endpoints, fetchImpl = globalThis.fetch, rdap, options = {}) {
+    const candidates = [...new Set((Array.isArray(endpoints) ? endpoints : [endpoints]).filter(Boolean))];
+    if (!candidates.length) throw new Error('No HTTPS RDAP service is available for this lookup.');
+    const failures = [];
+    for (const endpoint of candidates) {
+      const checked = validateEndpoint(endpoint);
+      if (checked.error) { failures.push(new Error(checked.error)); continue; }
+      try {
+        const response = await fetchImpl(checked.url, {
+          signal: options.signal,
+          headers: { Accept: 'application/rdap+json, application/json' },
+          redirect: 'follow'
+        });
+        if (response.url) {
+          const finalUrl = validateEndpoint(response.url);
+          if (finalUrl.error) throw new Error('The RDAP service redirected to an insecure or invalid URL.');
+        }
+        if (!response.ok) throw new Error(`The RDAP server returned HTTP ${response.status}.`);
+        const parsed = parseResponse(await response.text(), rdap);
+        return { ...parsed, endpoint: checked.url, finalUrl: response.url || checked.url };
+      } catch (error) {
+        if (error.name === 'AbortError') throw error;
+        failures.push(error);
+        if (options.signal?.aborted) throw error;
+      }
+    }
+    const last = failures[failures.length - 1] || new Error('The RDAP services did not return a usable response.');
+    const failure = candidates.length === 1 ? new Error(last.message) : new Error(`All ${candidates.length} RDAP service URLs failed. ${last.message}`);
+    failure.networkError = failures.some(error => error instanceof TypeError || error.networkError);
+    throw failure;
   }
   function shareUrl(base, endpoint) {
     const url = new URL(base);
@@ -189,7 +352,7 @@
     if (!url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, url.pathname.lastIndexOf('/') + 1);
     return url.pathname + url.search;
   }
-  return Object.freeze({ validateEndpoint, parseIPv4, parseIPv6, classifyInput, resolveBootstrapServices, resolveInput, parseResponse, shareUrl, landingUrl });
+  return Object.freeze({ validateEndpoint, parseIPv4, parseIPv6, parseASN, parseDomain, classifyInput, resolveBootstrapServices, resolveDomainBootstrapServices, resolveAsnBootstrapServices, getBootstrap, resolveInput, lookupURLs, parseResponse, fetchResolved, shareUrl, landingUrl });
 });
 
 if (typeof document !== 'undefined') {
@@ -226,23 +389,23 @@ if (typeof document !== 'undefined') {
     viewerRoot.hidden = true;
   }
   async function loadEndpoint(endpoint) {
+    input.value = endpoint;
+    return loadEndpoints([endpoint]);
+  }
+  async function loadEndpoints(endpoints) {
     resetView();
     const requestId = requestNumber;
-    input.value = endpoint;
+    const candidates = Array.isArray(endpoints) ? endpoints : [endpoints];
     error.hidden = true;
-    status.textContent = 'Loading RDAP response…';
+    status.textContent = candidates.length > 1 ? `Trying ${candidates.length} RDAP services…` : 'Loading RDAP response…';
     status.hidden = false;
-    const checked = RDAPWeb.validateEndpoint(endpoint);
-    if (checked.error) { showError(checked.error); return; }
     requestController = new AbortController();
     try {
-      const response = await fetch(checked.url, {
-        signal: requestController.signal,
-        headers: { Accept: 'application/rdap+json, application/json' }
-      });
-      if (!response.ok) throw new Error(`The RDAP server returned HTTP ${response.status}.`);
-      const parsed = RDAPWeb.parseResponse(await response.text(), RDAPHuman);
+      const parsed = await RDAPWeb.fetchResolved(candidates, fetch, RDAPHuman, { signal: requestController.signal });
       if (requestId !== requestNumber) return;
+      if (parsed.endpoint !== candidates[0] && new URL(location.href).searchParams.has('url')) {
+        history.replaceState({}, '', RDAPWeb.shareUrl(location.href, parsed.endpoint));
+      }
       viewerRoot.hidden = false;
       document.body.style.display = 'block';
       document.body.style.padding = '0';
@@ -250,7 +413,7 @@ if (typeof document !== 'undefined') {
         data: parsed.data,
         kind: parsed.kind,
         raw: parsed.raw,
-        sourceUrl: checked.url,
+        sourceUrl: parsed.finalUrl,
         newLookupHref: RDAPWeb.landingUrl(location.href),
         container: viewerRoot,
         stylesheetUrl: coreRoot + 'viewer.css'
@@ -262,7 +425,7 @@ if (typeof document !== 'undefined') {
       if (fetchError.name === 'AbortError' || requestId !== requestNumber) return;
       status.hidden = true;
       status.textContent = '';
-      showError(fetchError.message || 'Unable to load this RDAP response.', fetchError instanceof TypeError);
+      showError(fetchError.message || 'Unable to load this RDAP response.', fetchError instanceof TypeError || fetchError.networkError);
     }
   }
 
@@ -277,15 +440,16 @@ if (typeof document !== 'undefined') {
     status.hidden = true;
     status.textContent = '';
     try {
-      if (detected.type === 'ip') {
-        status.textContent = `Finding the RDAP server for ${detected.address} in IANA’s bootstrap registry…`;
+      if (['ip', 'domain', 'asn'].includes(detected.type)) {
+        const target = detected.type === 'ip' ? detected.address : detected.type === 'domain' ? detected.domain : `AS${detected.number}`;
+        status.textContent = `Finding the RDAP server for ${target} in IANA’s bootstrap registry…`;
         status.hidden = false;
       }
       const resolved = await RDAPWeb.resolveInput(typed);
       if (resolutionId !== resolutionNumber) return;
       const href = RDAPWeb.shareUrl(location.href, resolved.url);
       history.pushState({}, '', href);
-      loadEndpoint(resolved.url);
+      loadEndpoints(resolved.urls || [resolved.url]);
     } catch (resolveError) {
       if (resolutionId !== resolutionNumber) return;
       showError(resolveError.message || 'Unable to resolve this RDAP lookup.', resolveError instanceof TypeError);
