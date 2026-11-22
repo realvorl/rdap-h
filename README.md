@@ -9,7 +9,7 @@ A privacy-first RDAP viewer distributed as a browser extension and a self-hosted
 - `extension/` contains the Manifest V3 browser integration, settings, local lookup page and packaging script. `node extension/build.mjs` bundles the shared core locally.
 - `web/` is the standalone static frontend, also used for local development and browser testing.
 - `docker/` contains the unprivileged nginx image configuration. `tests/` covers packaging and Docker assets.
-- `.github/workflows/` contains CI and opt-in tag-triggered release workflows. GitHub Pages deployment is disabled.
+- `.github/workflows/` contains CI, Pages deployment and GHCR release automation. The existing extension release workflow remains separate.
 
 ## Browser extension
 
@@ -35,13 +35,13 @@ No `tabs`, `scripting`, or persistent broad host permission is requested. Conten
 
 ## Docker self-hosting
 
-The image is an nginx static server, runs as a non-root user, listens on port 8080, and disables access logs so request query strings are not written to container logs.
+The image is an nginx static server, runs as a non-root user, listens on port 8080, and disables access logs so request query strings are not written to container logs. Stable multi-architecture images are published to `ghcr.io/realvorl/rdap-h`.
 
 ```sh
 docker run -d \
-  --name rdap-human-viewer \
+  --name rdap-h \
   -p 8080:8080 \
-  ghcr.io/realvorl/rdap-human-viewer:latest
+  ghcr.io/realvorl/rdap-h:latest
 ```
 
 Or use Compose from the repository checkout:
@@ -74,8 +74,18 @@ find core extension web tests site -type f \( -name '*.js' -o -name '*.mjs' \) -
 
 Preview locally with `python3 -m http.server 8000` at `http://localhost:8000/web/`. Generated outputs are `extension/bundle/`, `extension/lookup/app.js`, `site/`, and `dist/`; edit their source files instead.
 
+## GitHub Pages
+
+The standalone static app deploys to [https://realvorl.github.io/rdap-h/](https://realvorl.github.io/rdap-h/). Pushes to `main` deploy only after the CI workflow succeeds; `workflow_dispatch` also runs the build, complete tests and syntax checks before deployment. The Pages artifact is generated in `site/` and contains only the web app, shared core files and required local icon assets. It includes `.nojekyll`; assets use relative paths so the site works under the `/rdap-h/` project path. No extension, tests, or Docker configuration is uploaded.
+
+Before the first deployment, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions**. Ensure the `github-pages` environment is available and allow GitHub Actions to deploy Pages. Do not configure a custom domain. After deployment, verify the landing page and a direct `?url=` link, use **New lookup** to return home, and check CSS, JavaScript and favicon requests under `/rdap-h/`.
+
 ## Release procedure
 
-Update `extension/manifest.json` version and `CHANGELOG.md`, run all build/test/syntax checks, then create and push an approved semantic version tag such as `v1.2.1`. CI packages the extension as `dist/rdap-human-viewer-v1.2.1.zip`; the extension workflow uploads that ZIP as a downloadable artifact. The Docker workflow publishes `linux/amd64` and `linux/arm64` images to GHCR with semantic version and `latest` tags. These workflows do not run until a version tag is pushed. Do not push a tag or publish without release approval.
+CI runs on pushes to `main` and pull requests targeting `main`, with read-only repository access. It builds the web and extension test artifacts, runs the full Node test suite and JavaScript syntax checks, validates referenced assets, and builds the Docker image without publishing.
+
+The Docker workflow reruns the complete tests and syntax checks before publishing on a stable `vMAJOR.MINOR.PATCH` tag or a manual workflow dispatch from `main` with an explicit `MAJOR.MINOR.PATCH` version. It builds `linux/amd64` and `linux/arm64`, publishes the immutable version tag and `latest`, and refuses to overwrite an existing version tag. `latest` advances with each approved stable release. Authentication uses the workflow's `GITHUB_TOKEN`; Docker Hub credentials are not used. To publish, allow GitHub Actions to use the repository `GITHUB_TOKEN`, then create the repository package through the workflow and set package visibility to **Public** in the package settings if public pulls are intended. Check that the package is linked to `realvorl/rdap-h` (the image supplies `org.opencontainers.image.source`). No image is published during ordinary CI or pull requests.
+
+The extension artifact workflow is independent and remains tag-triggered. Never create or push a release tag, dispatch a publishing workflow, or deploy without explicit release approval.
 
 The project is distributed under the existing [MIT License](LICENSE).

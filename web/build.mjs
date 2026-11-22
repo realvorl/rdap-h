@@ -14,6 +14,7 @@ const index = (await readFile(resolve(webDir, 'index.html'), 'utf8'))
   .replaceAll('../core/', 'core/')
   .replaceAll('../assets/', 'assets/');
 await writeFile(resolve(outputDir, 'index.html'), index);
+await writeFile(resolve(outputDir, '.nojekyll'), '');
 await cp(resolve(webDir, 'src/app.js'), resolve(outputDir, 'src/app.js'));
 for (const file of ['rdap.js', 'renderer.js', 'viewer.css', 'theme.css']) {
   await cp(resolve(rootDir, 'core', file), resolve(outputDir, 'core', file));

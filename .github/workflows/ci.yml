@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -16,8 +21,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: node extension/build.mjs
       - run: node web/build.mjs
+      - run: node extension/build.mjs
       - run: node extension/package.mjs
       - run: node --test core/tests/*.test.js extension/tests/*.test.js web/tests/*.test.js tests/*.test.js
       - name: Check JavaScript syntax

@@ -2,7 +2,7 @@
 
 ## Architecture
 
-`core/` is the sole source for RDAP parsing, IANA bootstrap discovery, formatting, safe DOM rendering, filtering, themes, JSON highlighting and shared CSS. `assets/` contains local RDAP -h icon artwork. `extension/` contains browser integration, settings, local lookup UI and release packager. `web/` is an independent static app for self-hosting and development. `docker/` packages the built static web app and local favicon assets into nginx. `tests/` verifies distribution artifacts. Do not edit generated bundles or `site/`; rebuild them from source.
+`core/` is the sole source for RDAP parsing, IANA bootstrap discovery, formatting, safe DOM rendering, filtering, themes, JSON highlighting and shared CSS. `assets/` contains local RDAP -h icon artwork. `extension/` contains browser integration, settings, local lookup UI and release packager. `web/` is an independent static app for self-hosting, Pages and development. `docker/` packages only the built static web app and local favicon assets into nginx. `tests/` verifies distribution artifacts. Do not edit generated bundles or `site/`; rebuild them from source. GitHub Pages uploads only `site/`.
 
 ## Development
 
@@ -26,4 +26,4 @@ The extension requests `storage`, optional HTTPS host access for bootstrap/selec
 
 ## Tests and release
 
-Add regression tests beside the affected component and update package tests when manifest files change. CI builds the extension/web assets, tests, syntax-checks JavaScript and builds both Docker architectures. The version-tag workflows package the extension and publish Docker to GHCR. Update `CHANGELOG.md` and the manifest version for releases. Never deploy, push, publish or create a release tag without explicit authorization. Preserve `LICENSE` and existing RealVorl attribution.
+Add regression tests beside the affected component and update package tests when manifest files change. CI runs for pushes and pull requests targeting `main`, runs all Node tests and syntax checks, validates web assets, and builds Docker without publishing. Successful `main` CI runs trigger the Pages workflow; manual Pages dispatch also reruns tests. Pages uses the Actions source setting and deploys only `site/` through the `github-pages` environment. The Docker workflow publishes `ghcr.io/realvorl/rdap-h` for stable `vMAJOR.MINOR.PATCH` tags or manual dispatch with a semantic version; `packages: write` belongs only to that publish job. Confirm Pages paths, direct `?url=` navigation, Docker `/healthz`, and CSS/JS/SVG MIME types during manual release verification. Update `CHANGELOG.md` and the manifest version for extension releases. Never deploy, push, publish or create a release tag without explicit authorization. Preserve `LICENSE` and existing RealVorl attribution. Browser RDAP requests remain subject to registry CORS; never add a proxy to bypass it.

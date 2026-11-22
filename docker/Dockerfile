@@ -7,6 +7,7 @@ RUN node web/build.mjs
 
 FROM nginx:1.30.7-alpine3.24
 COPY docker/nginx.conf /etc/nginx/nginx.conf
+RUN rm -rf /usr/share/nginx/html/*
 COPY --from=web-build /src/site/ /usr/share/nginx/html/
 USER 101:101
 EXPOSE 8080

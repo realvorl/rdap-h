@@ -307,6 +307,7 @@ test('new lookup navigation clears the RDAP URL and respects deployment base pat
   const cases = [
     ['https://viewer.example/?source=bookmark&url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/?source=bookmark'],
     ['http://localhost:8000/web/?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/web/'],
+    ['https://realvorl.github.io/rdap-h/?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/rdap-h/'],
     ['https://code.example/viewer/?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/viewer/'],
     ['https://code.example/viewer/index.html?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/viewer/']
   ];
@@ -368,6 +369,7 @@ test('standalone landing theme uses the shared selector and persists locally', (
 
 test('web build contains only the web frontend and required shared core assets', () => {
   const site = path.join(__dirname, '..', '..', 'site');
+  assert.ok(fs.existsSync(path.join(site, '.nojekyll')));
   for (const file of ['index.html', 'src/app.js', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css', 'core/theme.css', 'assets/icon.svg', 'assets/icon-small.svg', 'assets/icon-48.png', 'assets/icon-128.png']) {
     assert.ok(fs.existsSync(path.join(site, file)), file);
   }
@@ -378,4 +380,9 @@ test('web build contains only the web frontend and required shared core assets',
   assert.match(builtHtml, /href="assets\/icon-small\.svg"/);
   assert.match(builtHtml, /href="assets\/icon-48\.png"/);
   assert.match(builtHtml, /href="assets\/icon-128\.png"/);
+  for (const [, reference] of builtHtml.matchAll(/\b(?:src|href)="([^"]+)"/g)) {
+    if (/^(?:https?:|#)/i.test(reference)) continue;
+    const localPath = reference.split(/[?#]/, 1)[0];
+    assert.ok(fs.existsSync(path.join(site, localPath)), `Missing built asset ${reference}`);
+  }
 });
