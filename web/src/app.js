@@ -247,15 +247,15 @@
     }
     return now + lifetime;
   }
-  async function getBootstrap(name, fetchImpl = globalThis.fetch, cache = bootstrapCache) {
+  async function getBootstrap(name, fetchImpl = globalThis.fetch, cache = bootstrapCache, options = {}) {
     const cached = cache.get(name);
     if (cached && cached.expiresAt > Date.now()) return cached.promise;
     if (cached) cache.delete(name);
     const entry = { expiresAt: Infinity, promise: null };
     entry.promise = (async () => {
       let response;
-      try { response = await fetchImpl(BOOTSTRAP_URLS[name], { headers: { Accept: 'application/json' }, cache: 'default', redirect: 'follow' }); }
-      catch { throw new Error(`The IANA ${name.toUpperCase()} RDAP bootstrap registry is unavailable. Check your connection or CORS access, or enter a complete HTTPS RDAP URL.`); }
+      try { response = await fetchImpl(BOOTSTRAP_URLS[name], { signal: options.signal, headers: { Accept: 'application/json' }, cache: 'default', redirect: 'follow' }); }
+      catch (error) { if (error.name === 'AbortError') throw error; throw new Error(`The IANA ${name.toUpperCase()} RDAP bootstrap registry is unavailable. Check your connection or CORS access, or enter a complete HTTPS RDAP URL.`); }
       if (response.url && new URL(response.url).protocol !== 'https:') throw new Error(`The IANA ${name.toUpperCase()} RDAP bootstrap registry redirected to an insecure URL.`);
       if (!response.ok) throw new Error(`The IANA ${name.toUpperCase()} RDAP bootstrap registry returned HTTP ${response.status}.`);
       try {
@@ -273,12 +273,12 @@
     try { return await entry.promise; }
     catch (error) { if (cache.get(name) === entry) cache.delete(name); throw error; }
   }
-  async function resolveInput(value, fetchImpl = globalThis.fetch, cache = bootstrapCache) {
+  async function resolveInput(value, fetchImpl = globalThis.fetch, cache = bootstrapCache, options = {}) {
     const input = classifyInput(value);
     if (input.error) throw new Error(input.error);
     if (input.type === 'url') return { url: input.url, urls: [input.url], type: 'url' };
     const registryName = input.type === 'ip' ? input.family : input.type === 'domain' ? 'dns' : 'asn';
-    const registry = await getBootstrap(registryName, fetchImpl, cache);
+    const registry = await getBootstrap(registryName, fetchImpl, cache, options);
     let bases;
     let operation;
     let target;
@@ -309,6 +309,42 @@
     if (!kind) throw new Error('The URL did not return a recognized RDAP JSON response.');
     return { data, kind, raw: text };
   }
+  function parseRetryAfter(value, now = Date.now()) {
+    if (value === null || value === undefined || String(value).trim() === '') return null;
+    const text = String(value).trim();
+    let retryAt;
+    if (/^\d+$/.test(text)) {
+      const seconds = Number(text);
+      if (!Number.isSafeInteger(seconds)) return null;
+      retryAt = now + seconds * 1000;
+    } else {
+      const httpDate = /^(?:[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT|[A-Za-z]+, \d{2}-[A-Za-z]{3}-\d{2} \d{2}:\d{2}:\d{2} GMT|[A-Za-z]{3} [A-Za-z]{3} {1,2}\d{1,2} \d{2}:\d{2}:\d{2} \d{4})$/;
+      if (!httpDate.test(text)) return null;
+      retryAt = Date.parse(text);
+      if (!Number.isFinite(retryAt)) return null;
+    }
+    return Number.isFinite(retryAt) ? { retryAt, waitMs: Math.max(0, retryAt - now) } : null;
+  }
+  function rateLimitError(response, now = Date.now()) {
+    let header = null;
+    try { header = response.headers?.get?.('Retry-After') ?? response.headers?.get?.('retry-after') ?? null; }
+    catch { /* CORS may make this response header unavailable. */ }
+    const retry = parseRetryAfter(header, now);
+    const error = new Error(retry
+      ? `The RDAP registry is temporarily limiting requests (HTTP 429). ${retry.waitMs > 0 ? `Please wait ${formatWait(retry.waitMs)} before retrying.` : 'You can retry now.'}`
+      : 'The RDAP registry is temporarily limiting requests (HTTP 429). Retry manually later; no retry time was provided or exposed.');
+    error.rateLimited = true;
+    error.retryAt = retry?.retryAt ?? null;
+    error.retryAfterMs = retry?.waitMs ?? null;
+    return error;
+  }
+  function formatWait(milliseconds) {
+    const seconds = Math.ceil(milliseconds / 1000);
+    if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
+    const minutes = Math.ceil(seconds / 60);
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+  function retryAllowed(retryAt, now = Date.now()) { return retryAt === null || retryAt === undefined || retryAt <= now; }
   async function fetchResolved(endpoints, fetchImpl = globalThis.fetch, rdap, options = {}) {
     const candidates = [...new Set((Array.isArray(endpoints) ? endpoints : [endpoints]).filter(Boolean))];
     if (!candidates.length) throw new Error('No HTTPS RDAP service is available for this lookup.');
@@ -326,11 +362,13 @@
           const finalUrl = validateEndpoint(response.url);
           if (finalUrl.error) throw new Error('The RDAP service redirected to an insecure or invalid URL.');
         }
-        if (!response.ok) throw new Error(`The RDAP server returned HTTP ${response.status}.`);
+        if (response.status === 429) throw rateLimitError(response, options.now ?? Date.now());
+        if (!response.ok) throw new Error(`The RDAP server returned HTTP ${response.status} ${response.statusText || 'error'}.`);
         const parsed = parseResponse(await response.text(), rdap);
         return { ...parsed, endpoint: checked.url, finalUrl: response.url || checked.url };
       } catch (error) {
         if (error.name === 'AbortError') throw error;
+        if (error.rateLimited) throw error;
         failures.push(error);
         if (options.signal?.aborted) throw error;
       }
@@ -352,7 +390,7 @@
     if (!url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, url.pathname.lastIndexOf('/') + 1);
     return url.pathname + url.search;
   }
-  return Object.freeze({ validateEndpoint, parseIPv4, parseIPv6, parseASN, parseDomain, classifyInput, resolveBootstrapServices, resolveDomainBootstrapServices, resolveAsnBootstrapServices, getBootstrap, resolveInput, lookupURLs, parseResponse, fetchResolved, shareUrl, landingUrl });
+  return Object.freeze({ validateEndpoint, parseIPv4, parseIPv6, parseASN, parseDomain, classifyInput, resolveBootstrapServices, resolveDomainBootstrapServices, resolveAsnBootstrapServices, getBootstrap, resolveInput, lookupURLs, parseResponse, parseRetryAfter, retryAllowed, fetchResolved, shareUrl, landingUrl });
 });
 
 if (typeof document !== 'undefined') {
@@ -360,31 +398,59 @@ if (typeof document !== 'undefined') {
   const input = document.getElementById('rdap-url');
   const error = document.getElementById('lookup-error');
   const status = document.getElementById('lookup-status');
+  const retryButton = document.getElementById('retry-lookup');
   const landing = document.getElementById('landing');
+  const landingAttribution = document.getElementById('landing-attribution');
   const viewerRoot = document.getElementById('viewer-root');
   const script = document.currentScript;
   const coreRoot = script?.dataset.coreRoot || '../core/';
   let rendererInstance = null;
   let requestController = null;
+  let resolutionController = null;
   let requestNumber = 0;
   let resolutionNumber = 0;
+  let retryTimer = null;
+  let retryEndpoints = null;
+  let retryAt = null;
 
   function resetView() {
     requestNumber++;
     requestController?.abort();
+    resolutionController?.abort();
     requestController = null;
+    resolutionController = null;
+    clearTimeout(retryTimer);
+    retryAt = null;
     rendererInstance?.destroy();
     rendererInstance = null;
     viewerRoot.hidden = true;
     landing.hidden = false;
+    landingAttribution.hidden = false;
     document.body.style.display = '';
     document.body.style.padding = '';
   }
   function showError(message, networkError = false) {
+    clearTimeout(retryTimer);
     status.hidden = true;
     status.textContent = '';
     error.textContent = message + (networkError ? ' This may be a network problem or an RDAP server CORS restriction.' : '');
     error.hidden = false;
+    retryButton.hidden = true;
+  }
+  function showRateLimit(rateError) {
+    showError(rateError.message);
+    retryButton.hidden = false;
+    retryButton.disabled = !RDAPWeb.retryAllowed(rateError.retryAt);
+    retryAt = rateError.retryAt;
+    if (retryButton.disabled) {
+      retryButton.title = 'Retry is available after the registry retry time.';
+      const enableWhenReady = () => {
+        const remaining = retryAt - Date.now();
+        if (remaining <= 0) { retryButton.disabled = false; retryButton.title = ''; return; }
+        retryTimer = setTimeout(enableWhenReady, Math.min(remaining, 2147483647));
+      };
+      enableWhenReady();
+    } else retryButton.title = '';
     landing.hidden = false;
     viewerRoot.hidden = true;
   }
@@ -396,6 +462,8 @@ if (typeof document !== 'undefined') {
     resetView();
     const requestId = requestNumber;
     const candidates = Array.isArray(endpoints) ? endpoints : [endpoints];
+    retryEndpoints = candidates;
+    retryButton.hidden = true;
     error.hidden = true;
     status.textContent = candidates.length > 1 ? `Trying ${candidates.length} RDAP services…` : 'Loading RDAP response…';
     status.hidden = false;
@@ -415,23 +483,35 @@ if (typeof document !== 'undefined') {
         raw: parsed.raw,
         sourceUrl: parsed.finalUrl,
         newLookupHref: RDAPWeb.landingUrl(location.href),
+        websiteAttribution: true,
         container: viewerRoot,
         stylesheetUrl: coreRoot + 'viewer.css'
       });
       status.hidden = true;
       status.textContent = '';
       landing.hidden = true;
+      landingAttribution.hidden = true;
     } catch (fetchError) {
       if (fetchError.name === 'AbortError' || requestId !== requestNumber) return;
       status.hidden = true;
       status.textContent = '';
-      showError(fetchError.message || 'Unable to load this RDAP response.', fetchError instanceof TypeError || fetchError.networkError);
+      if (fetchError.rateLimited) showRateLimit(fetchError);
+      else showError(fetchError.message || 'Unable to load this RDAP response.', fetchError instanceof TypeError || fetchError.networkError);
     }
   }
+
+  retryButton.addEventListener('click', () => {
+    if (retryButton.disabled || !retryEndpoints) return;
+    loadEndpoints(retryEndpoints);
+  });
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const resolutionId = ++resolutionNumber;
+    resetView();
+    retryEndpoints = null;
+    retryAt = null;
+    retryButton.hidden = true;
     const typed = input.value;
     const detected = RDAPWeb.classifyInput(typed);
     if (detected.error) { showError(detected.error); input.focus(); return; }
@@ -439,24 +519,27 @@ if (typeof document !== 'undefined') {
     error.textContent = '';
     status.hidden = true;
     status.textContent = '';
+    resolutionController = new AbortController();
     try {
       if (['ip', 'domain', 'asn'].includes(detected.type)) {
         const target = detected.type === 'ip' ? detected.address : detected.type === 'domain' ? detected.domain : `AS${detected.number}`;
         status.textContent = `Finding the RDAP server for ${target} in IANA’s bootstrap registry…`;
         status.hidden = false;
       }
-      const resolved = await RDAPWeb.resolveInput(typed);
+      const resolved = await RDAPWeb.resolveInput(typed, fetch, undefined, { signal: resolutionController.signal });
       if (resolutionId !== resolutionNumber) return;
       const href = RDAPWeb.shareUrl(location.href, resolved.url);
       history.pushState({}, '', href);
       loadEndpoints(resolved.urls || [resolved.url]);
     } catch (resolveError) {
-      if (resolutionId !== resolutionNumber) return;
+      if (resolveError.name === 'AbortError' || resolutionId !== resolutionNumber) return;
       showError(resolveError.message || 'Unable to resolve this RDAP lookup.', resolveError instanceof TypeError);
     }
   });
   window.addEventListener('popstate', () => {
     resolutionNumber++;
+    retryEndpoints = null;
+    retryButton.hidden = true;
     const endpoint = new URL(location.href).searchParams.get('url');
     if (endpoint) loadEndpoint(endpoint);
     else { resetView(); input.value = ''; error.hidden = true; status.hidden = true; }

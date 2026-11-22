@@ -209,6 +209,80 @@ test('reports CORS-like failures after trying every selected RDAP service', asyn
   assert.equal(attempted.length, 2);
 });
 
+test('parses Retry-After seconds, HTTP dates, expired dates, and rejects invalid values', () => {
+  const now = Date.parse('Sun, 06 Nov 1994 08:49:00 GMT');
+  assert.deepEqual(Pages.parseRetryAfter('12', now), { retryAt: now + 12000, waitMs: 12000 });
+  const date = Pages.parseRetryAfter('Sun, 06 Nov 1994 08:50:00 GMT', now);
+  assert.deepEqual(date, { retryAt: now + 60000, waitMs: 60000 });
+  assert.deepEqual(Pages.parseRetryAfter('Sun, 06 Nov 1994 08:48:00 GMT', now), { retryAt: now - 60000, waitMs: 0 });
+  for (const value of [null, '', 'later', '-3', '999999999999999999999999']) assert.equal(Pages.parseRetryAfter(value, now), null, String(value));
+  assert.equal(Pages.retryAllowed(date.retryAt, now), false);
+  assert.equal(Pages.retryAllowed(date.retryAt, date.retryAt), true);
+  assert.equal(Pages.retryAllowed(null, now), true, 'missing or CORS-hidden headers should permit a user initiated retry');
+});
+
+test('HTTP 429 is reported before JSON parsing and does not trigger service fallback', async () => {
+  const calls = [];
+  await assert.rejects(Pages.fetchResolved(['https://one.example/ip/8.8.8.8', 'https://two.example/ip/8.8.8.8'], async url => {
+    calls.push(url);
+    return { ok: false, status: 429, statusText: 'Too Many Requests', headers: { get: name => name.toLowerCase() === 'retry-after' ? '30' : null }, text: async () => '<not JSON>' };
+  }, RDAP, { now: 1000 }), error => {
+    assert.equal(error.rateLimited, true);
+    assert.equal(error.retryAt, 31000);
+    assert.match(error.message, /HTTP 429/);
+    assert.match(error.message, /30 seconds/);
+    return true;
+  });
+  assert.deepEqual(calls, ['https://one.example/ip/8.8.8.8']);
+});
+
+test('HTTP 429 without an exposed Retry-After header gives guidance without inventing a wait', async () => {
+  await assert.rejects(Pages.fetchResolved('https://rdap.example/ip/8.8.8.8', async url => ({
+    ok: false, status: 429, statusText: 'Too Many Requests', url, headers: { get: () => null }, text: async () => '{broken'
+  }), RDAP), error => {
+    assert.equal(error.rateLimited, true);
+    assert.equal(error.retryAt, null);
+    assert.match(error.message, /no retry time was provided or exposed/);
+    return true;
+  });
+});
+
+test('aborts an obsolete lookup and never starts a second endpoint after cancellation', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const lookup = Pages.fetchResolved(['https://one.example/ip/8.8.8.8', 'https://two.example/ip/8.8.8.8'], (url, options) => {
+    calls++;
+    return new Promise((resolve, reject) => options.signal.addEventListener('abort', () => {
+      const error = new Error('aborted'); error.name = 'AbortError'; reject(error);
+    }, { once: true }));
+  }, RDAP, { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(lookup, { name: 'AbortError' });
+  assert.equal(calls, 1);
+});
+
+test('website and result renderer expose registry attribution, with source link only on results', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const renderer = fs.readFileSync(path.join(__dirname, '..', '..', 'core/renderer.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
+  const attribution = 'Registration data is provided by the respective RDAP registries. rdap-h.de is an independent viewer and is not affiliated with those registries.';
+  assert.ok(html.includes(attribution));
+  assert.ok(renderer.includes(attribution));
+  assert.match(html, /id="landing-attribution"/);
+  assert.match(app, /websiteAttribution:\s*true/);
+  assert.match(renderer, /Source RDAP endpoint/);
+  const extensionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension/src/content.js'), 'utf8');
+  assert.doesNotMatch(extensionSource, /websiteAttribution/);
+});
+
+test('manual retry is user-triggered and preserves the current resolved endpoint candidates', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
+  assert.match(source, /retryButton\.addEventListener\('click'/);
+  assert.match(source, /loadEndpoints\(retryEndpoints\)/);
+  assert.match(source, /retryButton\.disabled = !RDAPWeb\.retryAllowed/);
+  assert.doesNotMatch(source, /setInterval\s*\(/);
+});
+
 test('generates a directly shareable URL and preserves unrelated query parameters', () => {
   assert.equal(
     Pages.shareUrl('https://rdap-h.de/?source=bookmark', 'https://rdap.db.ripe.net/domain/example.test'),

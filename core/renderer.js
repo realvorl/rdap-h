@@ -51,6 +51,7 @@
       onModeChange(machine);
     }
     render(options.newLookupHref);
+    if (options.websiteAttribution === true) renderRegistryAttribution(screen, sourceUrl);
     return { host, setMachineMode, destroy() { host.remove(); restoreContainer(); restoreScrollbarGutter(); } };
   }
 
@@ -211,6 +212,23 @@
       }
     }
     return panel;
+  }
+
+  function renderRegistryAttribution(parent, endpoint) {
+    const footer = add(parent, el('footer', 'registry-attribution'));
+    add(footer, el('p', '', 'Registration data is provided by the respective RDAP registries. rdap-h.de is an independent viewer and is not affiliated with those registries.'));
+    if (typeof endpoint === 'string') {
+      try {
+        const url = new URL(endpoint);
+        if (url.protocol === 'https:') {
+          const link = add(footer, el('a', 'source-endpoint', 'Source RDAP endpoint'));
+          link.href = url.href;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.title = url.href;
+        }
+      } catch { /* Omit an invalid source URL. */ }
+    }
   }
 
   function el(tag, cls, text) {
