@@ -49,7 +49,7 @@ test('Docker package serves the built static web app without logging query URLs'
   }
   const html = await fs.readFile(path.join(root, 'site/index.html'), 'utf8');
   assert.match(html, /RDAP, but for Humans is an independent project/);
-  assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-human-viewer\/issues/);
+  assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-h\/issues/);
   assert.doesNotMatch(html, /https:\/\/ko-fi\.com\/realvorl/);
   const renderer = await fs.readFile(path.join(root, 'site/core/renderer.js'), 'utf8');
   assert.match(renderer, /KOFI_URL = 'https:\/\/ko-fi\.com\/realvorl'/);

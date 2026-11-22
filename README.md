@@ -56,9 +56,9 @@ The web app fetches IANA bootstrap data and RDAP responses directly from the use
 
 ## Privacy, attribution and support
 
-There is no analytics, telemetry, tracking cookie, lookup-history collection, third-party script, or server-side RDAP query recording. The extension stores view and theme preferences locally; the standalone site stores only view and theme preferences in browser local storage. The website/container does not persist user lookups. Registry attribution is shown in the interface; RDAP, but for Humans is independent and is not affiliated with registries. RealVorl attribution and links to [GitHub](https://github.com/realvorl/rdap-human-viewer), [GitHub Issues](https://github.com/realvorl/rdap-human-viewer/issues), and [Ko-fi](https://ko-fi.com/realvorl) are included in the UI.
+There is no analytics, telemetry, tracking cookie, lookup-history collection, third-party script, or server-side RDAP query recording. The extension stores view and theme preferences locally; the standalone site stores only view and theme preferences in browser local storage. The website/container does not persist user lookups. Registry attribution is shown in the interface; RDAP, but for Humans is independent and is not affiliated with registries. RealVorl attribution and links to [GitHub](https://github.com/realvorl/rdap-h), [GitHub Issues](https://github.com/realvorl/rdap-h/issues), and [Ko-fi](https://ko-fi.com/realvorl) are included in the UI.
 
-Report bugs or request support through [GitHub Issues](https://github.com/realvorl/rdap-human-viewer/issues). Donations are optional via [Ko-fi](https://ko-fi.com/realvorl).
+Report bugs or request support through [GitHub Issues](https://github.com/realvorl/rdap-h/issues). Donations are optional via [Ko-fi](https://ko-fi.com/realvorl).
 
 ## Local development and tests
 

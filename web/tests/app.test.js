@@ -270,8 +270,8 @@ test('website landing and shared result renderer show exact registry attribution
   assert.ok(renderer.includes(attribution));
   assert.match(renderer, /renderRegistryAttribution\(screen, sourceUrl\)/);
   assert.match(html, /id="landing-attribution"/);
-  assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-human-viewer/);
-  assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-human-viewer\/issues/);
+  assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-h/);
+  assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-h\/issues/);
   assert.doesNotMatch(html, /https:\/\/ko-fi\.com\/realvorl/);
   assert.match(renderer, /KOFI_URL = 'https:\/\/ko-fi\.com\/realvorl'/);
   assert.match(renderer, /Source RDAP endpoint/);

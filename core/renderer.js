@@ -6,7 +6,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (R) {
   'use strict';
   const ATTRIBUTION = 'Registration data is provided by the respective RDAP registries. RDAP, but for Humans is an independent project and is not affiliated with those registries.';
-  const SOURCE_URL = 'https://github.com/realvorl/rdap-human-viewer';
+  const SOURCE_URL = 'https://github.com/realvorl/rdap-h';
   const ISSUES_URL = SOURCE_URL + '/issues';
   const KOFI_URL = 'https://ko-fi.com/realvorl';
   const MAX_NODES = 7000;
