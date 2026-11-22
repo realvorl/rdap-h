@@ -50,7 +50,7 @@
       window.scrollTo(0, scrollTop);
       onModeChange(machine);
     }
-    render();
+    render(options.newLookupHref);
     return { host, setMachineMode, destroy() { host.remove(); restoreContainer(); restoreScrollbarGutter(); } };
   }
 
@@ -385,9 +385,21 @@
     content(body);
     return container;
   }
-  function render() {
+  function render(newLookupHref) {
     const wrap = add(screen, el('main', 'container'));
     const toolbar = add(wrap, el('div', 'human-toolbar'));
+    if (typeof newLookupHref === 'string' && newLookupHref) {
+      try {
+        const home = new URL(newLookupHref, location.href);
+        if (home.origin === location.origin) {
+          home.searchParams.delete('url');
+          home.hash = '';
+          const link = add(toolbar, el('a', 'toolbar-home', '← New lookup'));
+          link.href = home.pathname + home.search;
+          link.setAttribute('aria-label', 'Start a new RDAP lookup');
+        }
+      } catch {}
+    }
     filterControls = add(toolbar, el('div', 'toolbar-filter'));
     const filterInput = add(filterControls, el('input', 'filter-input'));
     filterInput.type = 'search';

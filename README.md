@@ -6,7 +6,7 @@ A dependency-free, read-only RDAP presentation with three parts: shared parsing 
 
 - `core/` owns RDAP recognition, field metadata and RFC references, safe links, summaries, filtering, the reusable shadow-DOM renderer, JSON tokenizer, and its single shared stylesheet. HUMAN and MACHINE modes both use this renderer; MACHINE displays indented JSON while its copy-raw control retains the exact server response.
 - `extension/` owns the Manifest V3 integration, original-document HUMAN/MACHINE switching, icons, and a small build script. The generated `extension/bundle/` contains local copies of core assets required by browser extension packaging; do not edit those generated copies directly.
-- `web/` owns the landing page, IP/URL detection, client-side IANA IPv4/IPv6 bootstrap resolution, RDAP fetches, share links, history navigation, and visible error handling. `web/build.mjs` assembles a deployable site from the web files and only the required core assets.
+- `web/` owns the landing page, IP/URL detection, client-side IANA IPv4/IPv6 bootstrap resolution, RDAP fetches, share links, history navigation, and visible error handling. Its results toolbar includes a base-path-aware New lookup link; the extension does not show it. `web/build.mjs` assembles a deployable site from the web files and only the required core assets.
 - `.github/workflows/pages.yml` tests the components and publishes the generated `site/` artifact on pushes to `main` or manual dispatch. `web/CNAME` configures `rdap-h.de`.
 
 ## Build, preview, and install

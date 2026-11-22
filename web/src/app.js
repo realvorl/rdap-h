@@ -182,7 +182,14 @@
     url.searchParams.set('url', endpoint);
     return url.href;
   }
-  return Object.freeze({ validateEndpoint, parseIPv4, parseIPv6, classifyInput, resolveBootstrapServices, resolveInput, parseResponse, shareUrl });
+  function landingUrl(current) {
+    const url = new URL(current);
+    url.searchParams.delete('url');
+    url.hash = '';
+    if (!url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, url.pathname.lastIndexOf('/') + 1);
+    return url.pathname + url.search;
+  }
+  return Object.freeze({ validateEndpoint, parseIPv4, parseIPv6, classifyInput, resolveBootstrapServices, resolveInput, parseResponse, shareUrl, landingUrl });
 });
 
 if (typeof document !== 'undefined') {
@@ -244,6 +251,7 @@ if (typeof document !== 'undefined') {
         kind: parsed.kind,
         raw: parsed.raw,
         sourceUrl: checked.url,
+        newLookupHref: RDAPWeb.landingUrl(location.href),
         container: viewerRoot,
         stylesheetUrl: coreRoot + 'viewer.css'
       });

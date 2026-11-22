@@ -111,6 +111,25 @@ test('generates a directly shareable URL and preserves unrelated query parameter
   );
 });
 
+test('new lookup navigation clears the RDAP URL and respects deployment base paths', () => {
+  const cases = [
+    ['https://rdap-h.de/?source=bookmark&url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/?source=bookmark'],
+    ['http://localhost:8000/web/?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/web/'],
+    ['https://veo.github.io/rdap-human-viewer/?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/rdap-human-viewer/'],
+    ['https://veo.github.io/rdap-human-viewer/index.html?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/rdap-human-viewer/']
+  ];
+  for (const [current, expected] of cases) assert.equal(Pages.landingUrl(current), expected);
+});
+
+test('web passes a base-aware landing link to the shared renderer without changing history navigation', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
+  assert.match(source, /newLookupHref:\s*RDAPWeb\.landingUrl\(location\.href\)/);
+  assert.match(source, /history\.pushState\(\{\}, '', href\)/);
+  assert.match(source, /window\.addEventListener\('popstate'/);
+  const extensionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension/src/content.js'), 'utf8');
+  assert.doesNotMatch(extensionSource, /newLookupHref/);
+});
+
 test('parses recognized RDAP JSON with surrounding whitespace', () => {
   const result = Pages.parseResponse(' \n{"objectClassName":"domain","ldhName":"example.test"}\n', RDAP);
   assert.equal(result.kind.type, 'domain');
