@@ -46,6 +46,47 @@ test('preserves repeated emails and formats jCard postal address from label', ()
   assert.deepEqual(fields.filter(x => x.key === 'email').map(x => x.value), ['one@example.net', 'two@example.net']);
   assert.equal(fields.find(x => x.key === 'adr').value, 'Line one\nLine two');
 });
+test('interprets jCard phone types and contact preference without exposing parameter objects', () => {
+  const fields = R.contactFields(['vcard', [
+    ['version', {}, 'text', '4.0'],
+    ['tel', {type:['work', 'voice'], pref:1, 'x-apnic-code':'AB-12'}, 'uri', 'tel:+61738583100'],
+    ['tel', {type:'fax', pref:2}, 'uri', 'tel:+61738583101'],
+    ['tel', {type:'cell', pref:3}, 'uri', 'tel:+61738583102']
+  ]]);
+  const phones = fields.filter(field => field.key === 'tel');
+  assert.deepEqual(phones.map(field => field.label), ['Work Phone', 'Fax', 'Mobile phone']);
+  assert.equal(phones[0].value, '+61738583100');
+  assert.equal(phones[0].sourceValue, 'tel:+61738583100');
+  assert.deepEqual(phones.map(field => field.preferenceLabel), ['Preferred · 1', 'Preference 2', 'Preference 3']);
+  assert.equal(phones[0].preferenceTitle, 'Preference 1; lower numbers indicate higher preference.');
+  assert.deepEqual(phones[0].technicalParams, [['x-apnic-code', 'AB-12']]);
+  assert.equal(fields[0].label, 'Version');
+});
+test('known jCard parameters are case-insensitive and labeled address data is preferred once', () => {
+  const fields = R.contactFields(['vcard', [
+    ['tel', {TYPE:['WORK', 'VOICE'], PREF:'1'}, 'uri', 'tel:+61738583100'],
+    ['adr', {LABEL:'Line one\nLine two'}, 'text', ['', '', 'Line one', 'Line two', '', '', '']]
+  ]]);
+  assert.equal(fields[0].label, 'Work Phone');
+  assert.equal(fields[0].preference, 1);
+  assert.equal(fields[1].value, 'Line one\nLine two');
+});
+test('formats fallback jCard addresses and removes empty values and parameter values', () => {
+  const fields = R.contactFields(['vcard', [
+    ['adr', {label:'   ', type:['home', ''], 'x-empty':'', 'x-array':['', null], 'x-empty-object':{value:''}, 'x-id':'ADDR-1', 'x-registry':{token:'RG-1'}}, 'text', ['', '', ' 21 Example Road ', '', 'Harbor City', '', '', 'AU']],
+    ['adr', {label:'APNIC Service Desk\nSouth Brisbane QLD 4101\nAustralia', type:'work'}, 'text', ['', '', '6 Cordelia Street', 'South Brisbane', 'QLD', '4101', 'Australia']],
+    ['adr', {label:'\n', type:'work'}, 'text', ['', '', '', '', '', '', '']],
+    ['email', {type:'work', pref:0, 'x-empty':null}, 'text', 'apnic@example.net']
+  ]]);
+  assert.equal(fields[0].value, '21 Example Road\nHarbor City\nAU');
+  assert.equal(fields[0].label, 'Home Address');
+  assert.deepEqual(fields[0].technicalParams, [['x-id', 'ADDR-1'], ['x-registry', {token:'RG-1'}]]);
+  assert.equal(fields[1].value, 'APNIC Service Desk\nSouth Brisbane QLD 4101\nAustralia');
+  assert.equal(fields[1].label, 'Work Address');
+  assert.equal(fields[2].value, '');
+  assert.equal(fields[3].preference, null);
+  assert.deepEqual(fields[3].technicalParams, [['pref', 0]]);
+});
 test('derives a compact IP network summary', () => {
   const data = {objectClassName:'ip network', name:'TEST-NET', handle:'NET-TEST', startAddress:'192.0.2.0', endAddress:'192.0.2.255', status:['active']};
   assert.equal(R.headline(data, R.detect(data)), 'TEST-NET');
@@ -72,6 +113,18 @@ test('filter preserves valid jCard when searching decoded contact keys or values
   const data = {entities:[{vcardArray:card,handle:'ABC'}], name:'Test network'};
   assert.deepEqual(R.filterTree(data,'example.org'), {entities:[{vcardArray:card}]});
   assert.deepEqual(R.filterTree(data,'email'), {entities:[{vcardArray:card}]});
+});
+test('jCard filtering matches formatted labels and original parameter keys and values', () => {
+  const card = ['vcard', [
+    ['tel', {type:'voice', pref:1, 'x-apnic-code':'ABUSE-42'}, 'uri', 'tel:+61738583100'],
+    ['adr', {label:'South Brisbane\nAustralia'}, 'text', ['', '', 'Cordelia Street', 'South Brisbane', '', '', 'Australia']]
+  ]];
+  const data = {entities:[{handle:'IRT-APNIC', vcardArray:card}]};
+  assert.deepEqual(R.filterTree(data, 'phone'), {entities:[{vcardArray:card}]});
+  assert.deepEqual(R.filterTree(data, 'preferred'), {entities:[{vcardArray:card}]});
+  assert.deepEqual(R.filterTree(data, 'x-apnic-code'), {entities:[{vcardArray:card}]});
+  assert.deepEqual(R.filterTree(data, 'ABUSE-42'), {entities:[{vcardArray:card}]});
+  assert.deepEqual(R.filterTree(data, 'South Brisbane'), {entities:[{vcardArray:card}]});
 });
 test('empty filter returns original data unchanged', () => {
   const data = {objectClassName:'ip network', handle:'NET'};

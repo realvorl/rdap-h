@@ -116,6 +116,7 @@ test('APNIC network fixture retains nested contacts and registry extensions', ()
   assert.equal(R.detect(fixture).type, 'ip network');
   const contacts = R.contactFields(fixture.entities[0].vcardArray);
   assert.equal(contacts.filter(field => field.key === 'email').length, 2);
+  assert.deepEqual(contacts.filter(field => field.key === 'email').map(field => field.label), ['Work Email', 'Abuse Email']);
   assert.match(contacts.find(field => field.key === 'adr').value, /South Brisbane/);
   assert.match(fixture.remarks[0].description[0], /APNIC-managed/);
 });
@@ -172,4 +173,7 @@ test('shared stylesheet contains the common filter, theme, and standards afforda
   assert.match(css, /@media\(max-width:600px\)/);
   assert.doesNotMatch(css, /\.mode-toggle\{position:fixed/);
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8'), /\.innerHTML\s*=/);
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8');
+  assert.match(renderer, /Technical details/);
+  assert.doesNotMatch(renderer, /JSON\.stringify\(p\.params\)/);
 });

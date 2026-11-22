@@ -87,16 +87,84 @@
   function formatLabel(value) {
     return String(value).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ').replace(/^./, x => x.toUpperCase());
   }
+  const parameterLabels = Object.freeze({
+    abuse: 'Abuse', administrative: 'Administrative', billing: 'Billing', emergency: 'Emergency', home: 'Home',
+    legal: 'Legal', noc: 'Network operations', notification: 'Notification', personal: 'Personal', registrant: 'Registrant',
+    registration: 'Registration', reseller: 'Reseller', security: 'Security', sponsor: 'Sponsor', support: 'Support',
+    technical: 'Technical', work: 'Work'
+  });
+  const phoneTypes = Object.freeze({ voice: 'Phone', fax: 'Fax', cell: 'Mobile phone', video: 'Video phone', pager: 'Pager', text: 'Text phone', textphone: 'Text phone' });
+  function getParameter(params, name) {
+    const entry = Object.entries(params).find(([key]) => key.toLowerCase() === name);
+    return entry?.[1];
+  }
+  function parameterValues(value) {
+    return (Array.isArray(value) ? value.flat(Infinity) : [value])
+      .filter(item => ['string', 'number', 'boolean'].includes(typeof item) && String(item).trim() !== '')
+      .map(item => String(item).trim());
+  }
+  function hasParameterValue(value) {
+    if (value === null || value === undefined) return false;
+    if (Array.isArray(value)) return value.some(hasParameterValue);
+    if (isObject(value)) return Object.values(value).some(hasParameterValue);
+    return String(value).trim() !== '';
+  }
+  function contactPresentation(field) {
+    const key = String(field?.key || '').toLowerCase();
+    const params = isObject(field?.params) ? field.params : {};
+    const types = parameterValues(getParameter(params, 'type')).map(type => type.toLowerCase());
+    const typeLabels = types.map(type => parameterLabels[type] || formatLabel(type));
+    let label = formatLabel(key);
+    if (key === 'fn') label = 'Name';
+    else if (key === 'org') label = 'Organization';
+    else if (key === 'email') label = `${typeLabels.join(' ')}${typeLabels.length ? ' ' : ''}Email`;
+    else if (key === 'tel') {
+      const phoneType = types.map(type => phoneTypes[type]).find(Boolean) || 'Phone';
+      const qualifiers = types.filter(type => !Object.hasOwn(phoneTypes, type)).map(type => parameterLabels[type] || formatLabel(type));
+      label = `${qualifiers.join(' ')}${qualifiers.length ? ' ' : ''}${phoneType}`;
+    } else if (key === 'adr') label = `${typeLabels.join(' ')}${typeLabels.length ? ' ' : ''}Address`;
+    else if (key === 'title') label = 'Job title';
+    else if (key === 'role') label = 'Role';
+    else if (key === 'kind') label = 'Contact type';
+    else if (key === 'url') label = 'Website';
+
+    const rawPreference = parameterValues(getParameter(params, 'pref'))[0];
+    const preferenceNumber = rawPreference !== undefined && /^\d+$/.test(rawPreference) ? Number(rawPreference) : null;
+    const preference = Number.isInteger(preferenceNumber) && preferenceNumber >= 1 && preferenceNumber <= 100 ? preferenceNumber : null;
+    const metadata = [];
+    for (const [name, caption] of [['language', 'Language'], ['mediatype', 'Media type'], ['geo', 'Location'], ['tz', 'Time zone']]) {
+      const values = parameterValues(getParameter(params, name));
+      values.forEach(value => metadata.push(`${caption}: ${value}`));
+    }
+    const technicalParams = Object.entries(params).filter(([name, value]) => {
+      const normalized = name.toLowerCase();
+      const interpreted = normalized === 'type' && ['email', 'tel', 'adr'].includes(key) && parameterValues(value).length > 0
+        || normalized === 'label' && key === 'adr' && parameterValues(value).length > 0
+        || normalized === 'pref' && preference !== null
+        || ['language', 'mediatype', 'geo', 'tz'].includes(normalized) && parameterValues(value).length > 0;
+      return !interpreted && hasParameterValue(value);
+    });
+    return {
+      label,
+      preference,
+      preferenceLabel: preference === null ? '' : preference === 1 ? 'Preferred · 1' : `Preference ${preference}`,
+      preferenceTitle: preference === null ? '' : `Preference ${preference}; lower numbers indicate higher preference.`,
+      metadata,
+      technicalParams,
+      types
+    };
+  }
   function contactFields(vcardArray) {
     if (!Array.isArray(vcardArray) || vcardArray[0] !== 'vcard' || !Array.isArray(vcardArray[1])) return [];
     return vcardArray[1].filter(x => Array.isArray(x) && x.length >= 4 && typeof x[0] === 'string').map(x => {
       const params = isObject(x[1]) ? x[1] : {};
       let value;
-      if (x[0] === 'adr' && Array.isArray(x[3])) {
-        const label = params.label;
-        value = (Array.isArray(label) ? label.join('\n') : typeof label === 'string' ? label : '') || x[3].flat(Infinity).filter(v => typeof v === 'string' && v).join('\n');
-      } else value = Array.isArray(x[3]) ? x[3].filter(v => typeof v === 'string' && v).join(', ') : String(x[3] ?? '');
-      return { key: x[0], value, params };
+      if (x[0] === 'adr') {
+        const label = parameterValues(getParameter(params, 'label')).join('\n');
+        value = label || parameterValues(x[3]).join('\n');
+      } else value = Array.isArray(x[3]) ? parameterValues(x[3]).join(', ') : x[3] === null || x[3] === undefined ? '' : String(x[3]).trim();
+      if (x[0] === 'tel') value = value.replace(/^tel:/i, '');
+      return { key: x[0], value, sourceValue: x[3], params, ...contactPresentation({ key: x[0], params }) };
     });
   }
   function entityHeading(entity) {
@@ -141,7 +209,7 @@
         // jCard is positional and must remain intact to be decoded correctly.
         if (node[0] === 'vcard' && Array.isArray(node[1])) {
           const props = contactFields(node);
-          return props.some(p => matches(p.key) || matches(p.value) || matches(JSON.stringify(p.params))) ? node : undefined;
+          return props.some(p => matches(p.key) || matches(p.label) || matches(p.value) || matches(p.sourceValue) || matches(p.preferenceLabel) || p.metadata.some(matches) || matches(JSON.stringify(p.params))) ? node : undefined;
         }
         const kept = node.map(v => visit(v, depth + 1)).filter(v => v !== undefined);
         return kept.length ? kept : undefined;

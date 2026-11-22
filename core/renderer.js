@@ -277,15 +277,32 @@
     }
   }
   function renderVcard(parent, card, depth, limit) {
-    const props = R.contactFields(card);
-    if (!props.length) { value(parent, card, depth + 1, limit); return; }
+    const decoded = R.contactFields(card);
+    if (!decoded.length) { value(parent, card, depth + 1, limit); return; }
+    const props = decoded.filter(p => p.key !== 'version' && p.value.trim());
+    if (!props.length) { add(parent, el('span', 'muted', 'No contact details provided.')); return; }
     const dl = add(parent, el('dl', 'detail-grid'));
     for (const p of props) {
-      const dt = add(dl, el('dt')); add(dt, fieldLabel(p.key));
+      const dt = add(dl, el('dt'));
+      const label = add(dt, el('span', 'field-label', p.label));
+      const explanation = info(p.key); if (explanation) label.append(' ', explanation);
       const dd = add(dl, el('dd'));
       if (p.key === 'adr') add(dd, el('span', 'value-text postal-address', p.value));
       else value(dd, p.value, depth + 1, limit);
-      if (Object.keys(p.params).length) { const label = add(dd, el('small', 'muted', ' · ' + JSON.stringify(p.params))); label.title = 'jCard parameters'; }
+      if (p.preference !== null) {
+        const preference = add(dd, el('small', 'contact-annotation', ' · ' + p.preferenceLabel));
+        preference.title = p.preferenceTitle;
+      }
+      p.metadata.forEach(item => add(dd, el('small', 'contact-annotation', ' · ' + item)));
+      if (p.technicalParams.length) {
+        const technical = add(dd, el('details', 'contact-technical'));
+        add(technical, el('summary', '', 'Technical details'));
+        const parameters = add(technical, el('dl', 'technical-parameters'));
+        p.technicalParams.forEach(([key, raw]) => {
+          add(parameters, el('dt', '', R.formatLabel(key)));
+          add(parameters, el('dd', '', JSON.stringify(raw)));
+        });
+      }
     }
   }
   function renderEntityList(parent, entities) {
