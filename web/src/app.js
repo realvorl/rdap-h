@@ -399,11 +399,14 @@ if (typeof document !== 'undefined') {
   const error = document.getElementById('lookup-error');
   const status = document.getElementById('lookup-status');
   const retryButton = document.getElementById('retry-lookup');
+  const permissionButton = document.getElementById('grant-service-access');
   const landing = document.getElementById('landing');
   const landingAttribution = document.getElementById('landing-attribution');
   const viewerRoot = document.getElementById('viewer-root');
   const script = document.currentScript;
   const coreRoot = script?.dataset.coreRoot || '../core/';
+  const extensionMode = script?.dataset.extension === 'true';
+  const extensionApi = extensionMode ? globalThis.chrome : null;
   let rendererInstance = null;
   let requestController = null;
   let resolutionController = null;
@@ -412,6 +415,8 @@ if (typeof document !== 'undefined') {
   let retryTimer = null;
   let retryEndpoints = null;
   let retryAt = null;
+  let pendingLookup = null;
+  let preferences = {};
 
   function resetView() {
     requestNumber++;
@@ -421,11 +426,13 @@ if (typeof document !== 'undefined') {
     resolutionController = null;
     clearTimeout(retryTimer);
     retryAt = null;
+    pendingLookup = null;
+    if (permissionButton) permissionButton.hidden = true;
     rendererInstance?.destroy();
     rendererInstance = null;
     viewerRoot.hidden = true;
     landing.hidden = false;
-    landingAttribution.hidden = false;
+    if (landingAttribution) landingAttribution.hidden = false;
     document.body.style.display = '';
     document.body.style.padding = '';
   }
@@ -456,8 +463,52 @@ if (typeof document !== 'undefined') {
   }
   async function loadEndpoint(endpoint) {
     input.value = endpoint;
-    return loadEndpoints([endpoint]);
+    const id = ++resolutionNumber;
+    return continueResolved({ url: endpoint, urls: [endpoint], type: 'url' }, id, false);
   }
+  function permissionOrigins(urls) {
+    return [...new Set(urls.map(value => new URL(value).origin + '/*'))];
+  }
+  function checkOrigins(origins) {
+    if (!extensionMode) return Promise.resolve(true);
+    return new Promise(resolve => extensionApi.permissions.contains({ origins }, resolve));
+  }
+  function requestOrigins(origins) {
+    if (!extensionMode) return Promise.resolve(true);
+    return new Promise(resolve => extensionApi.permissions.request({ origins }, resolve));
+  }
+  async function continueResolved(resolved, id, pushHistory) {
+    if (id !== resolutionNumber) return;
+    const endpoints = resolved.urls || [resolved.url];
+    for (const endpoint of endpoints) {
+      const checked = RDAPWeb.validateEndpoint(endpoint);
+      if (checked.error) { showError(checked.error); return; }
+    }
+    if (extensionMode && !await checkOrigins(permissionOrigins(endpoints))) {
+      pendingLookup = { resolved, id, pushHistory };
+      error.textContent = 'Allow this extension to contact the RDAP service selected by IANA to continue.';
+      error.hidden = false;
+      status.hidden = true;
+      if (permissionButton) permissionButton.hidden = false;
+      landing.hidden = false;
+      viewerRoot.hidden = true;
+      return;
+    }
+    if (pushHistory) history.pushState({}, '', RDAPWeb.shareUrl(location.href, resolved.url));
+    loadEndpoints(endpoints);
+  }
+  permissionButton?.addEventListener('click', async () => {
+    const pending = pendingLookup;
+    if (!pending || pending.id !== resolutionNumber) return;
+    try {
+      const granted = await requestOrigins(permissionOrigins(pending.resolved.urls || [pending.resolved.url]));
+      if (pending.id !== resolutionNumber) return;
+      if (!granted) throw new Error('Permission was not granted. The lookup remains available after service access is allowed.');
+      pendingLookup = null;
+      if (permissionButton) permissionButton.hidden = true;
+      await continueResolved(pending.resolved, pending.id, pending.pushHistory);
+    } catch (permissionError) { if (pending.id === resolutionNumber) showError(permissionError.message || 'Could not obtain RDAP service access.'); }
+  });
   async function loadEndpoints(endpoints) {
     resetView();
     const requestId = requestNumber;
@@ -482,15 +533,21 @@ if (typeof document !== 'undefined') {
         kind: parsed.kind,
         raw: parsed.raw,
         sourceUrl: parsed.finalUrl,
-        newLookupHref: RDAPWeb.landingUrl(location.href),
-        websiteAttribution: true,
+        newLookupHref: extensionMode ? extensionApi.runtime.getURL('lookup/index.html') : RDAPWeb.landingUrl(location.href),
+        websiteAttribution: !extensionMode,
+        attributionText: 'Registration data is provided by the respective RDAP registries. This is an independent viewer and is not affiliated with those registries.',
         container: viewerRoot,
-        stylesheetUrl: coreRoot + 'viewer.css'
+        stylesheetUrl: coreRoot + 'viewer.css',
+        preferences,
+        onPreferencesChange(next) {
+          preferences = next;
+          if (extensionMode) extensionApi.storage.local.set({ dark: next.dark, machine: next.machine });
+        }
       });
       status.hidden = true;
       status.textContent = '';
       landing.hidden = true;
-      landingAttribution.hidden = true;
+      if (landingAttribution) landingAttribution.hidden = true;
     } catch (fetchError) {
       if (fetchError.name === 'AbortError' || requestId !== requestNumber) return;
       status.hidden = true;
@@ -521,6 +578,12 @@ if (typeof document !== 'undefined') {
     status.textContent = '';
     resolutionController = new AbortController();
     try {
+      if (extensionMode) {
+        const requiredOrigins = detected.type === 'url' ? permissionOrigins([detected.url]) : ['https://data.iana.org/*'];
+        const granted = await requestOrigins(requiredOrigins);
+        if (!granted) throw new Error('The lookup needs permission to contact IANA or the HTTPS RDAP service. No request was sent.');
+        if (resolutionId !== resolutionNumber) return;
+      }
       if (['ip', 'domain', 'asn'].includes(detected.type)) {
         const target = detected.type === 'ip' ? detected.address : detected.type === 'domain' ? detected.domain : `AS${detected.number}`;
         status.textContent = `Finding the RDAP server for ${target} in IANA’s bootstrap registry…`;
@@ -528,9 +591,7 @@ if (typeof document !== 'undefined') {
       }
       const resolved = await RDAPWeb.resolveInput(typed, fetch, undefined, { signal: resolutionController.signal });
       if (resolutionId !== resolutionNumber) return;
-      const href = RDAPWeb.shareUrl(location.href, resolved.url);
-      history.pushState({}, '', href);
-      loadEndpoints(resolved.urls || [resolved.url]);
+      await continueResolved(resolved, resolutionId, true);
     } catch (resolveError) {
       if (resolveError.name === 'AbortError' || resolutionId !== resolutionNumber) return;
       showError(resolveError.message || 'Unable to resolve this RDAP lookup.', resolveError instanceof TypeError);
@@ -538,7 +599,10 @@ if (typeof document !== 'undefined') {
   });
   window.addEventListener('popstate', () => {
     resolutionNumber++;
+    resetView();
     retryEndpoints = null;
+    pendingLookup = null;
+    if (permissionButton) permissionButton.hidden = true;
     retryButton.hidden = true;
     const endpoint = new URL(location.href).searchParams.get('url');
     if (endpoint) loadEndpoint(endpoint);
@@ -546,6 +610,7 @@ if (typeof document !== 'undefined') {
   });
 
   const initialUrl = new URL(location.href).searchParams.get('url');
+  if (extensionMode) extensionApi.storage.local.get(['dark', 'machine'], stored => { preferences = { dark: stored.dark, machine: stored.machine === true }; });
   if (initialUrl) loadEndpoint(initialUrl);
   else input.focus({ preventScroll: true });
 }

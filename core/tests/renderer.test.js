@@ -10,6 +10,15 @@ test('shared renderer exports a browser mount point without requiring a framewor
   assert.equal(typeof Renderer.tokenizeJSON, 'function');
 });
 
+test('renderer restores and persists HUMAN/MACHINE and theme preferences', () => {
+  assert.deepEqual(Renderer.normalizePreferences({ dark: true, machine: true }), { dark: true, machine: true });
+  assert.deepEqual(Renderer.normalizePreferences({ dark: false, machine: 'yes' }, true), { dark: false, machine: false });
+  assert.deepEqual(Renderer.normalizePreferences({}, true), { dark: true, machine: false });
+  const source = fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8');
+  assert.match(source, /onPreferencesChange\(\{ dark, machine \}\)/);
+  assert.match(source, /onOriginalResponse/);
+});
+
 test('MACHINE display pretty prints JSON while copy retains exact response bytes', () => {
   const data = { objectClassName: 'ip network', entities: [{ handle: 'H' }] };
   const raw = ' \n{"objectClassName":"ip network","entities":[{"handle":"H"}]}\r\n';

@@ -10,7 +10,7 @@
   let dark, screen, machinePane, humanContent, recordHeader, filterControls, data, kind, sourceUrl, rawResponse, formattedJSON, host, shadow, toggle, expandControls;
 
   function mount(options) {
-    const { container = document.body, stylesheetUrl, onModeChange = () => {} } = options;
+    const { container = document.body, stylesheetUrl, onModeChange = () => {}, onPreferencesChange = () => {} } = options;
     if (!R) throw new Error('RDAP core is not loaded.');
     if (!R.isObject(options.data) || !options.kind) throw new TypeError('A recognized RDAP object and type are required.');
     data = options.data;
@@ -21,7 +21,8 @@
     rawResponse = machine.clipboard;
     const restoreScrollbarGutter = reserveScrollbarGutter(document.documentElement);
     const restoreContainer = constrainContainer(container);
-    dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+    const preferences = normalizePreferences(options.preferences, window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
+    dark = preferences.dark;
     host = document.createElement('div');
     host.id = 'rdap-human-viewer-host';
     container.appendChild(host);
@@ -35,8 +36,8 @@
     shadow.appendChild(screen);
     machinePane = renderMachine(formattedJSON, rawResponse);
     machinePane.hidden = true;
-    let human = true;
-    toggle = el('button', 'toolbar-button mode-toggle', 'MACHINE');
+    let human = !preferences.machine;
+    toggle = el('button', 'toolbar-button mode-toggle', human ? 'MACHINE' : 'HUMAN');
     toggle.type = 'button';
     toggle.setAttribute('aria-label', 'Switch to machine-readable JSON view');
     toggle.addEventListener('click', () => setMachineMode(human));
@@ -49,10 +50,17 @@
       toggle.setAttribute('aria-label', machine ? 'Switch to human-readable RDAP view' : 'Switch to machine-readable JSON view');
       window.scrollTo(0, scrollTop);
       onModeChange(machine);
+      onPreferencesChange({ dark, machine });
     }
-    render(options.newLookupHref);
-    if (options.websiteAttribution === true) renderRegistryAttribution(screen, sourceUrl);
+    render(options.newLookupHref, options.onOriginalResponse);
+    toggle.setAttribute('aria-label', human ? 'Switch to machine-readable JSON view' : 'Switch to human-readable RDAP view');
+    if (!human) applyMode({ humanContent, recordHeader, machinePane, expandControls, filterControls }, true);
+    if (options.websiteAttribution === true) renderRegistryAttribution(screen, sourceUrl, options.attributionText);
     return { host, setMachineMode, destroy() { host.remove(); restoreContainer(); restoreScrollbarGutter(); } };
+  }
+
+  function normalizePreferences(preferences = {}, systemDark = false) {
+    return { dark: typeof preferences.dark === 'boolean' ? preferences.dark : Boolean(systemDark), machine: preferences.machine === true };
   }
 
   function tokenizeJSON(source) {
@@ -214,9 +222,9 @@
     return panel;
   }
 
-  function renderRegistryAttribution(parent, endpoint) {
+  function renderRegistryAttribution(parent, endpoint, attributionText) {
     const footer = add(parent, el('footer', 'registry-attribution'));
-    add(footer, el('p', '', 'Registration data is provided by the respective RDAP registries. rdap-h.de is an independent viewer and is not affiliated with those registries.'));
+    if (attributionText) add(footer, el('p', '', attributionText));
     if (typeof endpoint === 'string') {
       try {
         const url = new URL(endpoint);
@@ -403,7 +411,7 @@
     content(body);
     return container;
   }
-  function render(newLookupHref) {
+  function render(newLookupHref, onOriginalResponse) {
     const wrap = add(screen, el('main', 'container'));
     const toolbar = add(wrap, el('div', 'human-toolbar'));
     if (typeof newLookupHref === 'string' && newLookupHref) {
@@ -417,6 +425,12 @@
           link.setAttribute('aria-label', 'Start a new RDAP lookup');
         }
       } catch {}
+    }
+    if (typeof onOriginalResponse === 'function') {
+      const original = add(toolbar, el('button', 'toolbar-button original-response', '← Original response'));
+      original.type = 'button';
+      original.setAttribute('aria-label', 'Return to the original RDAP response');
+      original.addEventListener('click', onOriginalResponse);
     }
     filterControls = add(toolbar, el('div', 'toolbar-filter'));
     const filterInput = add(filterControls, el('input', 'filter-input'));
@@ -445,6 +459,7 @@
       dark = !dark;
       screen.dataset.theme = dark ? 'dark' : 'light';
       syncThemeButton();
+      onPreferencesChange({ dark, machine: !human });
     });
     add(actions, toggle);
     recordHeader = add(wrap, el('header', 'record-header'));
@@ -547,5 +562,5 @@
     });
   }
 
-  return Object.freeze({ mount, tokenizeJSON, machineOutput, reserveScrollbarGutter, constrainContainer, setExpanded, captureExpansion, restoreExpansion, applyFilterExpansion, applyMode, copyToClipboard });
+  return Object.freeze({ mount, tokenizeJSON, machineOutput, reserveScrollbarGutter, constrainContainer, setExpanded, captureExpansion, restoreExpansion, applyFilterExpansion, applyMode, copyToClipboard, normalizePreferences });
 });

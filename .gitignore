@@ -1,6 +1,7 @@
 # Generated frontend and extension bundles
 /site/
 /extension/bundle/
+/extension/lookup/app.js
 /dist/
 /rdap-human-viewer-v*.zip
 

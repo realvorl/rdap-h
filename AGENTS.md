@@ -2,24 +2,29 @@
 
 ## Project Structure
 
-This repository has three components. `core/` is the sole source of truth for RDAP parsing, filtering, field explanations, JSON tokenization, the shared renderer, and `viewer.css`. `extension/` contains the browser manifest, content integration, icons, tests, and `build.mjs`, which copies core assets into the local `bundle/` required by extension packaging. `web/` contains the standalone static frontend, URL/IP/domain/ASN lookup and IANA bootstrap resolution, tests, CNAME, and `build.mjs`, which assembles the web app plus required core assets into `site/`. Do not edit generated bundles directly.
+`core/` is the single source of truth for RDAP recognition, filtering, field help, HUMAN/MACHINE rendering, JSON highlighting, and shared CSS. `extension/` contains the Manifest V3 integration, toolbar action, settings page, local lookup page, icons, and tests. `extension/build.mjs` copies shared core assets and the web lookup controller into generated extension paths; do not edit generated files. `web/` is retained only for local development and browser testing. `.github/workflows/tests.yml` runs CI; there is no publishing workflow.
 
-## Build and Test
+## Build, Test, and Preview
 
-Run from the repository root with Node.js 20 or newer:
+Use Node.js 20 or newer from the repository root:
 
 ```sh
 node extension/build.mjs
 node web/build.mjs
 node --test core/tests/*.test.js extension/tests/*.test.js web/tests/*.test.js
+find core extension web site -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
 ```
 
-Run syntax checks with `node --check` on each `.js` and `.mjs` source. For a local web preview, start `python3 -m http.server 8000` at the repository root and open `/web/`; the frontend loads shared assets from `/core/`. Load the extension by selecting `extension/` as an unpacked extension after building.
+Load `extension/` as an unpacked extension in Chrome or Edge after building. Preview the development interface with `python3 -m http.server 8000` from the root and open `/web/`.
 
 ## Coding and Testing
 
-Keep dependencies at zero. Use two-space indentation, single quotes, semicolons, and camelCase. Keep parsing and shared presentation behavior in `core/`; frontend-specific lookup validation, IANA bootstrap fetching, navigation, and browser DOM preservation belong in `web/` and `extension/`. Limit remote web requests to the four HTTPS IANA bootstrap registries and selected HTTPS RDAP services; cache bootstrap data with an expiry and a bounded cache. Handle HTTP 429 before parsing a response, respect exposed `Retry-After` values, and retry only after a user action. Abort obsolete bootstrap and RDAP requests on new lookups. Use `textContent` for untrusted values, validate constructed URLs, and keep executable extension assets local. Add tests beside the component they cover and run both builds before tests that compare generated bundles.
+Keep dependencies at zero. Use two-space indentation, single quotes, semicolons, and camelCase. Shared display behavior belongs in `core/`; browser integration and settings belong in `extension/`; lookup discovery and the local testing interface belong in `web/`. Use safe DOM APIs and `textContent` for untrusted data. Keep executable code local. Extension cross-origin lookup requests must ask for optional host access to the IANA bootstrap and RDAP origins needed for that lookup. Add automated tests next to each component and run both build scripts before tests that compare generated assets.
 
-## Pull Requests and Security
+## Extension Behavior and Privacy
 
-Use concise imperative commit subjects. Describe user-visible behavior, tests, and manual browser checks in pull requests; include screenshots for visual changes and call out permission/privacy changes. The extension must remain passive and read-only, and website requests must be limited to IANA bootstrap data and the selected RDAP URL. The website's landing and result pages must attribute registry data to its respective source without implying endorsement; result attribution links to the source RDAP endpoint. The Pages workflow deploys only the generated `site/` artifact; do not deploy manually unless requested.
+Automatic mode is the default and may inspect only candidate RDAP response pages before rendering. On-demand mode must not parse or modify page content until the user clicks the toolbar icon. The icon opens the bundled lookup interface on non-RDAP pages. Store operating mode and viewer theme/mode preferences with `chrome.storage.local`. Preserve a control that restores the original browser-rendered response. Do not add analytics, remote executable code, broad network requests, or unrelated permissions.
+
+## Changes and Release Checks
+
+Use concise imperative commit subjects. Document user-visible changes, permission changes, tests, and manual browser checks. Check both Automatic and On demand in Chrome and Edge, including toolbar lookup and original-response restoration. Keep the MIT license and contributor attribution intact. Never deploy or publish unless explicitly instructed.

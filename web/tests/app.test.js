@@ -265,11 +265,12 @@ test('website and result renderer expose registry attribution, with source link 
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const renderer = fs.readFileSync(path.join(__dirname, '..', '..', 'core/renderer.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
-  const attribution = 'Registration data is provided by the respective RDAP registries. rdap-h.de is an independent viewer and is not affiliated with those registries.';
+  const attribution = 'Registration data is provided by the respective RDAP registries. This is an independent viewer and is not affiliated with those registries.';
   assert.ok(html.includes(attribution));
-  assert.ok(renderer.includes(attribution));
+  assert.ok(app.includes(attribution));
+  assert.match(renderer, /renderRegistryAttribution\(screen, sourceUrl, options\.attributionText\)/);
   assert.match(html, /id="landing-attribution"/);
-  assert.match(app, /websiteAttribution:\s*true/);
+  assert.match(app, /websiteAttribution:\s*!extensionMode/);
   assert.match(renderer, /Source RDAP endpoint/);
   const extensionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension/src/content.js'), 'utf8');
   assert.doesNotMatch(extensionSource, /websiteAttribution/);
@@ -285,25 +286,26 @@ test('manual retry is user-triggered and preserves the current resolved endpoint
 
 test('generates a directly shareable URL and preserves unrelated query parameters', () => {
   assert.equal(
-    Pages.shareUrl('https://rdap-h.de/?source=bookmark', 'https://rdap.db.ripe.net/domain/example.test'),
-    'https://rdap-h.de/?source=bookmark&url=https%3A%2F%2Frdap.db.ripe.net%2Fdomain%2Fexample.test'
+    Pages.shareUrl('https://viewer.example/?source=bookmark', 'https://rdap.db.ripe.net/domain/example.test'),
+    'https://viewer.example/?source=bookmark&url=https%3A%2F%2Frdap.db.ripe.net%2Fdomain%2Fexample.test'
   );
 });
 
 test('new lookup navigation clears the RDAP URL and respects deployment base paths', () => {
   const cases = [
-    ['https://rdap-h.de/?source=bookmark&url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/?source=bookmark'],
+    ['https://viewer.example/?source=bookmark&url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/?source=bookmark'],
     ['http://localhost:8000/web/?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/web/'],
-    ['https://veo.github.io/rdap-human-viewer/?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/rdap-human-viewer/'],
-    ['https://veo.github.io/rdap-human-viewer/index.html?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/rdap-human-viewer/']
+    ['https://code.example/viewer/?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/viewer/'],
+    ['https://code.example/viewer/index.html?url=https%3A%2F%2Frdap.example%2Fip%2F8.8.8.8', '/viewer/']
   ];
   for (const [current, expected] of cases) assert.equal(Pages.landingUrl(current), expected);
 });
 
 test('web passes a base-aware landing link to the shared renderer without changing history navigation', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
-  assert.match(source, /newLookupHref:\s*RDAPWeb\.landingUrl\(location\.href\)/);
-  assert.match(source, /history\.pushState\(\{\}, '', href\)/);
+  assert.match(source, /newLookupHref:\s*extensionMode\s*\?/);
+  assert.match(source, /RDAPWeb\.landingUrl\(location\.href\)/);
+  assert.match(source, /history\.pushState\(\{\}, '', RDAPWeb\.shareUrl/);
   assert.match(source, /window\.addEventListener\('popstate'/);
   const extensionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension/src/content.js'), 'utf8');
   assert.doesNotMatch(extensionSource, /newLookupHref/);
@@ -334,7 +336,7 @@ test('web entry point loads shared modules through local relative paths', () => 
 
 test('web build contains only the web frontend and required shared core assets', () => {
   const site = path.join(__dirname, '..', '..', 'site');
-  for (const file of ['index.html', 'src/app.js', 'CNAME', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css']) {
+  for (const file of ['index.html', 'src/app.js', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css']) {
     assert.ok(fs.existsSync(path.join(site, file)), file);
   }
   assert.ok(!fs.existsSync(path.join(site, 'extension')));

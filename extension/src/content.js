@@ -1,4 +1,4 @@
-/* Extension-specific page detection and original-document integration. */
+/* Passive RDAP page detection and browser-rendered response integration. */
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -9,6 +9,9 @@
     const type = String(mime || '').toLowerCase();
     return isTopFrame && rdap.looksLikeRdapUrl(url) && !(type.includes('html') || type.includes('xml') || type.includes('pdf'));
   }
+  function shouldAutoDisplay(mode, url, mime, isTopFrame, rdap) {
+    return mode !== 'onDemand' && shouldRun(url, mime, isTopFrame, rdap);
+  }
   function parseDocument(raw, rdap) {
     if (typeof raw !== 'string' || !raw.trimStart().startsWith('{') || raw.length > 5 * 1024 * 1024) return null;
     try {
@@ -17,28 +20,98 @@
       return kind ? { data, kind, raw } : null;
     } catch { return null; }
   }
-  return Object.freeze({ shouldRun, parseDocument });
+  return Object.freeze({ shouldRun, shouldAutoDisplay, parseDocument });
 });
 
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   const R = globalThis.RDAPHuman;
   const Renderer = globalThis.RDAPRenderer;
-  const runtime = globalThis.chrome?.runtime || globalThis.browser?.runtime;
-  if (R && Renderer && RDAPExtension.shouldRun(location.href, document.contentType, window.top === window, R) && !document.getElementById('rdap-human-viewer-host')) {
-    const parsed = RDAPExtension.parseDocument(document.body?.textContent || '', R);
-    if (parsed) {
-      const body = document.body;
-      const original = document.createDocumentFragment();
-      body.style.margin = '0';
-      while (body.firstChild) original.appendChild(body.firstChild);
-      Renderer.mount({
-        data: parsed.data,
-        kind: parsed.kind,
-        raw: parsed.raw,
-        sourceUrl: location.href,
-        container: body,
-        stylesheetUrl: runtime.getURL('bundle/viewer.css')
-      });
-    }
+  const api = globalThis.chrome || globalThis.browser;
+  const runtime = api?.runtime;
+  const storage = api?.storage?.local;
+  let mode = 'automatic';
+  let preferences = {};
+  let renderer = null;
+  let original = null;
+  let originalBodyStyle = null;
+  let viewerBodyStyle = null;
+  let showingOriginal = false;
+
+  function parsedPage(force = false) {
+    if (!R || window.top !== window) return null;
+    if (!force && !RDAPExtension.shouldRun(location.href, document.contentType, true, R)) return null;
+    return RDAPExtension.parseDocument(document.body?.textContent || '', R);
   }
+  function setBodyStyle(value) {
+    if (value === null) document.body.removeAttribute('style');
+    else document.body.setAttribute('style', value);
+  }
+  function showOriginal(show) {
+    if (!renderer || !original) return;
+    if (show === showingOriginal) return;
+    showingOriginal = show;
+    if (show) {
+      renderer.host.remove();
+      while (document.body.firstChild) original.appendChild(document.body.firstChild);
+      document.body.appendChild(original);
+    } else {
+      renderer.setMachineMode(false);
+      while (document.body.firstChild) original.appendChild(document.body.firstChild);
+      document.body.appendChild(renderer.host);
+    }
+    setBodyStyle(show ? originalBodyStyle : viewerBodyStyle);
+  }
+  function display(parsed) {
+    if (renderer) { showOriginal(false); return true; }
+    if (!parsed || !Renderer) return false;
+    const body = document.body;
+    originalBodyStyle = body.getAttribute('style');
+    original = document.createDocumentFragment();
+    while (body.firstChild) original.appendChild(body.firstChild);
+    body.appendChild(original);
+    renderer = Renderer.mount({
+      data: parsed.data,
+      kind: parsed.kind,
+      raw: parsed.raw,
+      sourceUrl: location.href,
+      container: body,
+      stylesheetUrl: runtime.getURL('bundle/viewer.css'),
+      preferences: { dark: preferences.dark, machine: false },
+      onPreferencesChange(next) {
+        preferences = next;
+        storage?.set({ dark: next.dark, machine: next.machine });
+      },
+      onOriginalResponse() { showOriginal(true); }
+    });
+    viewerBodyStyle = body.getAttribute('style');
+    return true;
+  }
+  function action() {
+    const parsed = parsedPage(true);
+    if (!parsed) return false;
+    if (!renderer) display(parsed);
+    else showOriginal(!showingOriginal);
+    return true;
+  }
+
+  runtime?.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === 'RDAP_VIEWER_ACTION') {
+      sendResponse({ rdap: action() });
+      return false;
+    }
+    if (message?.type === 'RDAP_MODE_CHANGED') {
+      mode = message.mode === 'onDemand' ? 'onDemand' : 'automatic';
+      if (mode === 'automatic') display(parsedPage());
+      else if (renderer) showOriginal(true);
+      sendResponse({ ok: true });
+      return false;
+    }
+    return false;
+  });
+
+  storage?.get(['operatingMode', 'dark', 'machine'], settings => {
+    mode = settings.operatingMode === 'onDemand' ? 'onDemand' : 'automatic';
+    preferences = { dark: settings.dark, machine: settings.machine === true };
+    if (RDAPExtension.shouldAutoDisplay(mode, location.href, document.contentType, window.top === window, R)) display(parsedPage());
+  });
 }

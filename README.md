@@ -1,46 +1,40 @@
 # RDAP Human Viewer
 
-A dependency-free, read-only RDAP presentation with three parts: shared parsing and rendering, a browser extension, and a standalone static website.
+A dependency-free browser extension that turns RDAP registration responses into a readable, standards-aware view. The extension is the only distributed product. `web/` remains as a local development and browser-testing interface; it is not deployed.
 
-## Repository layout
+## Architecture
 
-- `core/` owns RDAP recognition, field metadata and RFC references, safe links, summaries, filtering, the reusable shadow-DOM renderer, JSON tokenizer, and its single shared stylesheet. HUMAN and MACHINE modes both use this renderer; MACHINE displays indented JSON while its copy-raw control retains the exact server response.
-- `extension/` owns the Manifest V3 integration, original-document HUMAN/MACHINE switching, icons, and a small build script. The generated `extension/bundle/` contains local copies of core assets required by browser extension packaging; do not edit those generated copies directly.
-- `web/` owns the landing page, input detection, client-side IANA IPv4/IPv6/domain/ASN bootstrap resolution, RDAP fetches, share links, history navigation, and visible error handling. Its results toolbar includes a base-path-aware New lookup link; the extension does not show it. `web/build.mjs` assembles a deployable site from the web files and only the required core assets.
-- `.github/workflows/pages.yml` tests the components and publishes the generated `site/` artifact on pushes to `main` or manual dispatch. `web/CNAME` configures `rdap-h.de`.
+- `core/` contains RDAP recognition, filtering, field explanations, the shared HUMAN/MACHINE renderer, JSON highlighting, and shared CSS.
+- `extension/` contains the Manifest V3 integration, toolbar action, settings page, and extension-local lookup interface. Run the build before loading the unpacked extension; shared assets are copied into `extension/bundle/` and the lookup app into `extension/lookup/app.js`.
+- `web/` contains the standalone local development frontend and its tests. It reuses `core/` and is not part of extension runtime.
+- `.github/workflows/tests.yml` runs builds, automated tests, and JavaScript syntax checks. There is no website deployment workflow.
 
 ## Build, preview, and install
 
-From the repository root:
+Use Node.js 20 or newer. From the repository root:
 
 ```sh
 node extension/build.mjs
 node web/build.mjs
 ```
 
-Preview the source frontend at `http://localhost:8000/web/` with `python3 -m http.server 8000` running from the repository root. Shared assets resolve from `core/`. For GitHub Pages or `rdap-h.de`, deploy the generated `site/` directory.
+Load `extension/` as an unpacked extension in Chrome or Edge. Open the extension's **Details → Extension options** to choose Automatic or On demand. The local web testing interface can be previewed with `python3 -m http.server 8000` from the repository root at `http://localhost:8000/web/`.
 
-To load the extension locally, run the extension build and select `extension/` in Chrome or Edge's **Load unpacked** control. The browser package uses only generated local core scripts and a local stylesheet. No runtime executable code is downloaded.
+Automatic is the default and recognizes supported RDAP JSON responses. On demand leaves pages untouched until the toolbar icon is clicked on an RDAP response. The icon opens the extension's local lookup page on other pages. Lookups support public IPv4/IPv6 addresses, domains, ASNs, and complete HTTPS RDAP URLs. Extension lookups may ask permission to contact IANA and the selected RDAP service; the extension requests only the HTTPS origins needed for that lookup. Bootstrap data is cached in memory. Network and CORS failures, invalid responses, and HTTP rate limits are shown in the UI.
 
-## Testing and style
-
-Run the zero-dependency Node test suite and syntax checks from the repository root:
+## Tests and style
 
 ```sh
 node extension/build.mjs
 node web/build.mjs
 node --test core/tests/*.test.js extension/tests/*.test.js web/tests/*.test.js
-node --check core/rdap.js && node --check core/renderer.js && node --check web/src/app.js && node --check extension/src/content.js && node --check extension/build.mjs && node --check web/build.mjs
+find core extension web site -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
 ```
 
-The shared renderer regression tests include the APNIC `123.11.12.13` network response shape, contact details, repeated emails, labeled postal address, events, remarks, links, registry-specific extension fields, expansion state, filtering, mode switching, and exact-response clipboard copying. jCard contacts use readable phone/address labels and preference annotations; nonempty implementation-specific parameters are tucked into optional Technical details. HUMAN and MACHINE share a full-width, margin-padded container and toolbar with a stable viewport scrollbar gutter. MACHINE shows only formatted JSON, its copy control, and the theme/mode controls; HUMAN provides Expand all and Collapse all for nested disclosures.
+Keep dependencies at zero. Use two-space indentation, single quotes, semicolons, and camelCase. Add tests beside the component they cover. Do not edit generated bundles directly.
 
-Use Node.js 20 or newer. Follow the existing JavaScript style: two spaces, single quotes, semicolons, and camelCase. Add behavior tests beside the component in `core/tests/`, `extension/tests/`, or `web/tests/`. Run both build scripts before tests that compare generated extension assets with core sources.
+## Security and attribution
 
-## Behavior and security
+The extension uses the `storage` permission for operating mode and viewer preferences. Optional HTTPS host access is requested for IANA bootstrap and selected RDAP registry origins when a lookup requires it. Automatic RDAP recognition uses the existing HTTP(S) content-script matches; the script only reads response bodies for supported RDAP URLs, and On demand does not inspect page content until the toolbar action is invoked. No analytics, tracking, backend, remote executable code, or new runtime dependencies are used.
 
-The extension runs only on top-level, browser-exposed RDAP JSON documents. The web app accepts public IPv4/IPv6 addresses, domain names, ASNs, or complete HTTPS RDAP URLs. It resolves IP prefixes, DNS suffixes, and ASN ranges from the corresponding IANA bootstrap registry, then tries HTTPS service URLs in order. Bootstrap requests are cached in memory with expiry; bootstrap and RDAP requests run in the user's browser and require suitable CORS headers. A 429 response is recognized before JSON parsing, stops endpoint fallback and offers a manual retry. When a `Retry-After` header is visible, the retry control remains disabled until its indicated time; absent or CORS-hidden headers produce guidance without an invented wait. Starting another lookup cancels obsolete bootstrap and RDAP requests. No search API is used. The website attributes registry data on its landing and result pages and links each result to its source RDAP endpoint; rdap-h.de is an independent viewer with no registry affiliation. Both frontends use the same renderer, syntax highlighting, filter, theme controls, RFC explanations, safe URL checks, and styling. JSON highlighting creates spans with `textContent`; no response data is inserted with `innerHTML`. The web copy-raw control retains the exact fetched response text; the extension copies the exact JSON text exposed by the browser document. No analytics, tracking, backend, or external script dependencies are used.
-
-## Release checks
-
-Manually check Chrome and Edge against IP, ASN, domain, entity, and nameserver responses; verify filtering, HUMAN/MACHINE mode, light/dark themes, and RFC links. For the website, check IPv4 and IPv6 lookups, bootstrap errors, direct `?url=` links, Back/Forward, successful and failed CORS requests, HTTP 429 with numeric/date/missing `Retry-After`, manual retry timing, other HTTP failures, malformed JSON, landing/result attribution in both themes, source endpoint links, mobile layout, and keyboard navigation. Browser integration, accessibility, visual regression, and store review are not covered by the unit suite.
+The project retains its [MIT license](LICENSE) and contributor copyright attribution. Manual release checks should cover Automatic and On demand behavior, the original-response return control, toolbar lookups and permission prompts, stored preferences across extension reload/restart, Chrome and Edge, CORS/network errors, and invalid RDAP responses.
