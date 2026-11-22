@@ -265,14 +265,15 @@ test('website landing and shared result renderer show exact registry attribution
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const renderer = fs.readFileSync(path.join(__dirname, '..', '..', 'core/renderer.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
-  const attribution = 'Registration data is provided by the respective RDAP registries. RDAP Human Viewer is an independent project and is not affiliated with those registries.';
+  const attribution = 'Registration data is provided by the respective RDAP registries. RDAP, but for Humans is an independent project and is not affiliated with those registries.';
   assert.ok(html.includes(attribution));
   assert.ok(renderer.includes(attribution));
   assert.match(renderer, /renderRegistryAttribution\(screen, sourceUrl\)/);
   assert.match(html, /id="landing-attribution"/);
   assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-human-viewer/);
   assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-human-viewer\/issues/);
-  assert.match(html, /https:\/\/ko-fi\.com\/realvorl/);
+  assert.doesNotMatch(html, /https:\/\/ko-fi\.com\/realvorl/);
+  assert.match(renderer, /KOFI_URL = 'https:\/\/ko-fi\.com\/realvorl'/);
   assert.match(renderer, /Source RDAP endpoint/);
   const extensionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension/src/content.js'), 'utf8');
   assert.doesNotMatch(extensionSource, /websiteAttribution/);
@@ -343,26 +344,38 @@ test('web entry point loads shared modules through local relative paths', () => 
   assert.match(html, /src="\.\.\/core\/renderer\.js"/);
   assert.match(html, /src="src\/app\.js"/);
   assert.match(html, /href="\.\.\/core\/theme\.css"/);
-  assert.match(html, /<select id="landing-theme"[^>]*aria-label="Color theme"/);
-  assert.match(html, /<option value="auto">Auto<\/option><option value="light">Light<\/option><option value="dark">Dark<\/option>/);
+  assert.match(html, /type="image\/svg\+xml" href="\.\.\/assets\/icon-small\.svg"/);
+  assert.match(html, /sizes="48x48" href="\.\.\/assets\/icon-48\.png"/);
+  assert.match(html, /sizes="128x128" href="\.\.\/assets\/icon-128\.png"/);
+  assert.match(html, /id="landing-toolbar-slot" class="landing-toolbar-slot"/);
+  assert.doesNotMatch(html, /https:\/\/ko-fi\.com\/realvorl/);
+  const renderer = fs.readFileSync(path.join(__dirname, '..', '..', 'core/renderer.js'), 'utf8');
+  assert.match(renderer, /\[\['auto', 'Auto'\], \['light', 'Light'\], \['dark', 'Dark'\]\]/);
   assert.doesNotMatch(html, /https?:[^"']+\.js/);
 });
 
 test('standalone landing theme uses the shared selector and persists locally', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
-  assert.match(app, /RDAPRenderer\.createThemeSelector\(landingTheme, document\.documentElement, preferences, persistPreferences\)/);
+  assert.match(app, /RDAPRenderer\.mountLandingToolbar\(landingToolbarSlot, document\.documentElement, preferences, persistPreferences\)/);
   assert.match(app, /localStorage\.setItem\('rdap-human-viewer-preferences'/);
   assert.match(app, /localStorage\.getItem\('rdap-human-viewer-preferences'/);
   assert.match(app, /themeStylesheetUrl: coreRoot \+ 'theme\.css'/);
+  const renderer = fs.readFileSync(path.join(__dirname, '..', '..', 'core/renderer.js'), 'utf8');
+  assert.match(renderer, /href = KOFI_URL/);
+  assert.match(renderer, /title = 'Support this project on Ko-fi'/);
+  assert.match(renderer, /aria-label', 'Support this project on Ko-fi'/);
 });
 
 test('web build contains only the web frontend and required shared core assets', () => {
   const site = path.join(__dirname, '..', '..', 'site');
-  for (const file of ['index.html', 'src/app.js', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css', 'core/theme.css']) {
+  for (const file of ['index.html', 'src/app.js', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css', 'core/theme.css', 'assets/icon.svg', 'assets/icon-small.svg', 'assets/icon-48.png', 'assets/icon-128.png']) {
     assert.ok(fs.existsSync(path.join(site, file)), file);
   }
   assert.ok(!fs.existsSync(path.join(site, 'extension')));
   const builtHtml = fs.readFileSync(path.join(site, 'index.html'), 'utf8');
   assert.match(builtHtml, /src="core\/rdap\.js"/);
   assert.match(builtHtml, /data-core-root="core\/"/);
+  assert.match(builtHtml, /href="assets\/icon-small\.svg"/);
+  assert.match(builtHtml, /href="assets\/icon-48\.png"/);
+  assert.match(builtHtml, /href="assets\/icon-128\.png"/);
 });

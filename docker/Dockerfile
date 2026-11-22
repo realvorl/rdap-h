@@ -2,6 +2,7 @@ FROM node:24.22.3-alpine3.24 AS web-build
 WORKDIR /src
 COPY core ./core
 COPY web ./web
+COPY assets ./assets
 RUN node web/build.mjs
 
 FROM nginx:1.30.7-alpine3.24

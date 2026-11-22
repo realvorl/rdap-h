@@ -5,7 +5,7 @@
   else root.RDAPRenderer = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (R) {
   'use strict';
-  const ATTRIBUTION = 'Registration data is provided by the respective RDAP registries. RDAP Human Viewer is an independent project and is not affiliated with those registries.';
+  const ATTRIBUTION = 'Registration data is provided by the respective RDAP registries. RDAP, but for Humans is an independent project and is not affiliated with those registries.';
   const SOURCE_URL = 'https://github.com/realvorl/rdap-human-viewer';
   const ISSUES_URL = SOURCE_URL + '/issues';
   const KOFI_URL = 'https://ko-fi.com/realvorl';
@@ -81,11 +81,12 @@
     return { theme: selected, dark: selected === 'dark' || (selected === 'auto' && Boolean(systemDark)) };
   }
 
-  function createThemeSelector(select, target, preferences = {}, onChange = () => {}, colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)')) {
+  function createThemeSelector(select, target, preferences = {}, onChange = () => {}, colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)'), icon = null) {
     let state = resolveTheme(preferences.theme, colorScheme?.matches ?? false);
     const apply = () => {
       select.value = state.theme;
       target.dataset.theme = state.dark ? 'dark' : 'light';
+      if (icon) updateThemeIcon(icon, state.theme);
     };
     const set = theme => {
       state = resolveTheme(theme, colorScheme?.matches ?? false);
@@ -111,6 +112,94 @@
         else colorScheme?.removeListener?.(onSystemThemeChange);
       }
     };
+  }
+
+  function updateThemeIcon(icon, theme) {
+    const ns = 'http://www.w3.org/2000/svg';
+    while (icon.firstChild) icon.removeChild(icon.firstChild);
+    const shapes = theme === 'auto'
+      ? [['rect', { x: '3', y: '4', width: '18', height: '13', rx: '2' }], ['path', { d: 'M8 21h8M12 17v4' }]]
+      : theme === 'light'
+        ? [['circle', { cx: '12', cy: '12', r: '3.5' }], ['path', { d: 'M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42' }]]
+        : [['path', { d: 'M20.2 15.1A8.5 8.5 0 0 1 8.9 3.8 8.7 8.7 0 1 0 20.2 15.1Z' }]];
+    for (const [tag, attributes] of shapes) {
+      const shape = document.createElementNS(ns, tag);
+      for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
+      shape.setAttribute('fill', 'none');
+      shape.setAttribute('stroke', 'currentColor');
+      shape.setAttribute('stroke-width', '1.7');
+      shape.setAttribute('stroke-linecap', 'round');
+      shape.setAttribute('stroke-linejoin', 'round');
+      icon.appendChild(shape);
+    }
+    icon.dataset.themeIcon = theme;
+  }
+
+  function createThemeIcon() {
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.setAttribute('focusable', 'false');
+    icon.classList.add('theme-icon');
+    return icon;
+  }
+
+  function createKofiIcon() {
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.setAttribute('focusable', 'false');
+    icon.classList.add('kofi-icon');
+    for (const d of [
+      'M4 8h13v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8Z',
+      'M17 10h2a2 2 0 0 1 0 4h-2',
+      'M3 21h18',
+      'M8 5c0-1 1-1 1-2m3 2c0-1 1-1 1-2'
+    ]) {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '1.7');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      icon.appendChild(path);
+    }
+    return icon;
+  }
+
+  function addKofiLink(parent) {
+    const link = add(parent, el('a', 'toolbar-kofi'));
+    link.href = KOFI_URL;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.title = 'Support this project on Ko-fi';
+    link.setAttribute('aria-label', 'Support this project on Ko-fi');
+    link.appendChild(createKofiIcon());
+    return link;
+  }
+
+  function createThemeControl(parent, id, target, preferences, colorScheme, onChange) {
+    const group = add(parent, el('div', 'theme-control'));
+    const label = add(group, el('label', 'theme-label', 'Theme'));
+    const icon = createThemeIcon();
+    group.appendChild(icon);
+    const select = add(group, el('select', 'toolbar-button theme-select'));
+    select.id = id;
+    label.htmlFor = id;
+    select.setAttribute('aria-label', 'Theme');
+    for (const [value, text] of [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']]) {
+      const option = add(select, el('option', '', text));
+      option.value = value;
+    }
+    return createThemeSelector(select, target, preferences, onChange, colorScheme, icon);
+  }
+
+  function mountLandingToolbar(slot, target, preferences, onChange, colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)')) {
+    const toolbar = add(slot, el('div', 'landing-toolbar'));
+    addKofiLink(toolbar);
+    const themeControl = createThemeControl(toolbar, 'landing-theme-select', target, preferences, colorScheme, onChange);
+    return { toolbar, destroy() { themeControl.destroy(); toolbar.remove(); } };
   }
 
   function tokenizeJSON(source) {
@@ -288,7 +377,7 @@
         }
       } catch { /* Omit an invalid source URL. */ }
     }
-    for (const [label, href] of [['GitHub', SOURCE_URL], ['Issues & support', ISSUES_URL], ['Ko-fi', KOFI_URL]]) {
+    for (const [label, href] of [['GitHub', SOURCE_URL], ['Issues & support', ISSUES_URL]]) {
       const link = add(links, el('a', '', label));
       link.href = href;
       link.target = '_blank';
@@ -471,6 +560,7 @@
   function render(newLookupHref, onOriginalResponse, preferences, colorScheme, onThemeChange) {
     const wrap = add(screen, el('main', 'container'));
     const toolbar = add(wrap, el('div', 'human-toolbar'));
+    addKofiLink(toolbar);
     if (typeof newLookupHref === 'string' && newLookupHref) {
       try {
         const home = new URL(newLookupHref, location.href);
@@ -504,12 +594,7 @@
     const collapse = add(expandControls, el('button', 'toolbar-button collapse-all', '− Collapse all'));
     collapse.type = 'button'; collapse.setAttribute('aria-label', 'Collapse all HUMAN sections and details');
     const actions = add(toolbar, el('div', 'toolbar-actions'));
-    const themeToggle = add(actions, el('select', 'toolbar-button theme-select'));
-    themeToggle.setAttribute('aria-label', 'Color theme');
-    for (const [value, label] of [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']]) {
-      const option = add(themeToggle, el('option', '', label));
-      option.value = value;
-    }
+    const themeControl = createThemeControl(actions, 'rdap-theme-select', screen, preferences, colorScheme, onThemeChange);
     add(actions, toggle);
     recordHeader = add(wrap, el('header', 'record-header'));
     renderHeader(recordHeader);
@@ -533,7 +618,7 @@
     filterInput.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(update, 100); });
     clear.addEventListener('click', () => { clearTimeout(timer); filterInput.value = ''; update(); filterInput.focus(); });
     update();
-    return createThemeSelector(themeToggle, screen, preferences, onThemeChange, colorScheme);
+    return themeControl;
   }
   function renderHeader(wrap) {
     const eyebrow = add(wrap, el('div', 'eyebrow'));
@@ -608,5 +693,5 @@
     });
   }
 
-  return Object.freeze({ mount, tokenizeJSON, machineOutput, reserveScrollbarGutter, constrainContainer, setExpanded, captureExpansion, restoreExpansion, applyFilterExpansion, applyMode, copyToClipboard, normalizePreferences, resolveTheme, createThemeSelector });
+  return Object.freeze({ mount, mountLandingToolbar, tokenizeJSON, machineOutput, reserveScrollbarGutter, constrainContainer, setExpanded, captureExpansion, restoreExpansion, applyFilterExpansion, applyMode, copyToClipboard, normalizePreferences, resolveTheme, createThemeSelector });
 });

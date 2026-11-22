@@ -60,11 +60,14 @@ test('toolbar action opens lookup when no RDAP page responded and toggles a dete
 
 test('extension manifest points at the local generated core bundle', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+  const expectedIcons = { 16: 'icons/icon16.png', 32: 'icons/icon32.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' };
+  assert.deepEqual(manifest.icons, expectedIcons);
+  assert.deepEqual(manifest.action.default_icon, expectedIcons);
   assert.deepEqual(manifest.content_scripts[0].js, ['bundle/rdap.js', 'bundle/renderer.js', 'src/content.js']);
   assert.deepEqual(manifest.web_accessible_resources[0].resources, ['bundle/viewer.css', 'bundle/theme.css']);
   assert.deepEqual(manifest.permissions, ['storage']);
   assert.deepEqual(manifest.optional_host_permissions, ['https://*/*']);
-  assert.equal(manifest.action.default_title, 'RDAP Human Viewer');
+  assert.equal(manifest.action.default_title, 'RDAP, but for Humans');
   assert.equal(manifest.options_ui.page, 'settings.html');
   assert.equal(manifest.background.service_worker, 'src/background.js');
   assert.deepEqual(manifest.background.scripts, ['src/background.js']);
@@ -73,6 +76,15 @@ test('extension manifest points at the local generated core bundle', () => {
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'lookup', 'index.html')));
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'lookup', 'app.js')));
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'bundle', 'theme.css')));
+  for (const [size, iconPath] of Object.entries(expectedIcons)) {
+    const png = fs.readFileSync(path.join(__dirname, '..', iconPath));
+    assert.equal(png.readUInt32BE(16), Number(size), iconPath);
+    assert.equal(png.readUInt32BE(20), Number(size), iconPath);
+  }
+  assert.deepEqual(fs.readFileSync(path.join(__dirname, '..', 'icons/icon16.png')), fs.readFileSync(path.join(__dirname, '..', '..', 'assets/icon-16.png')));
+  assert.deepEqual(fs.readFileSync(path.join(__dirname, '..', 'icons/icon32.png')), fs.readFileSync(path.join(__dirname, '..', '..', 'assets/icon-32.png')));
+  assert.deepEqual(fs.readFileSync(path.join(__dirname, '..', 'icons/icon48.png')), fs.readFileSync(path.join(__dirname, '..', '..', 'assets/icon-48.png')));
+  assert.deepEqual(fs.readFileSync(path.join(__dirname, '..', 'icons/icon128.png')), fs.readFileSync(path.join(__dirname, '..', '..', 'assets/icon-128.png')));
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'settings.html')));
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'settings.js')));
   const lookupHtml = fs.readFileSync(path.join(__dirname, '..', 'lookup', 'index.html'), 'utf8');
@@ -85,8 +97,10 @@ test('extension manifest points at the local generated core bundle', () => {
   assert.equal(fs.readFileSync(path.join(__dirname, '..', 'bundle', 'viewer.css'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'viewer.css'), 'utf8'));
   assert.equal(fs.readFileSync(path.join(__dirname, '..', 'bundle', 'theme.css'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'theme.css'), 'utf8'));
   const landingHtml = fs.readFileSync(path.join(__dirname, '..', 'lookup', 'index.html'), 'utf8');
-  assert.match(landingHtml, /<select id="landing-theme"[^>]*aria-label="Color theme"/);
-  assert.match(landingHtml, /<option value="auto">Auto<\/option><option value="light">Light<\/option><option value="dark">Dark<\/option>/);
+  assert.match(landingHtml, /id="landing-toolbar-slot" class="landing-toolbar-slot"/);
+  assert.doesNotMatch(landingHtml, /https:\/\/ko-fi\.com\/realvorl/);
+  const frontend = fs.readFileSync(path.join(__dirname, '..', '..', 'web/src/app.js'), 'utf8');
+  assert.match(frontend, /RDAPRenderer\.mountLandingToolbar\(landingToolbarSlot/);
 });
 
 test('extension requests optional service origins only from its local lookup flow', () => {

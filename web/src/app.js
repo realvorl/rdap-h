@@ -402,6 +402,7 @@ if (typeof document !== 'undefined') {
   const permissionButton = document.getElementById('grant-service-access');
   const landing = document.getElementById('landing');
   const landingAttribution = document.getElementById('landing-attribution');
+  const landingToolbarSlot = document.getElementById('landing-toolbar-slot');
   const viewerRoot = document.getElementById('viewer-root');
   const script = document.currentScript;
   const coreRoot = script?.dataset.coreRoot || '../core/';
@@ -616,8 +617,7 @@ if (typeof document !== 'undefined') {
 
   const initialUrl = new URL(location.href).searchParams.get('url');
   function startInitialView() {
-    const landingTheme = document.getElementById('landing-theme');
-    if (landingTheme) RDAPRenderer.createThemeSelector(landingTheme, document.documentElement, preferences, persistPreferences);
+    if (landingToolbarSlot) RDAPRenderer.mountLandingToolbar(landingToolbarSlot, document.documentElement, preferences, persistPreferences);
     if (initialUrl) loadEndpoint(initialUrl);
     else input.focus({ preventScroll: true });
   }

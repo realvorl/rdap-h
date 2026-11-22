@@ -17,7 +17,17 @@ test('renderer restores and persists HUMAN/MACHINE and auto/light/dark preferenc
   assert.deepEqual(Renderer.normalizePreferences({ dark: false }, true), { theme: 'light', dark: false, machine: false });
   const source = fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8');
   assert.match(source, /onPreferencesChange\(\{ \.\.\.currentPreferences, machine \}\)/);
-  assert.match(source, /createThemeSelector\(themeToggle, screen, preferences/);
+  assert.match(source, /createThemeControl\(actions, 'rdap-theme-select', screen/);
+  assert.match(source, /\[\['auto', 'Auto'\], \['light', 'Light'\], \['dark', 'Dark'\]\]/);
+  assert.match(source, /const toolbar = add\(wrap, el\('div', 'human-toolbar'\)\);\s*addKofiLink\(toolbar\);[\s\S]*const link = add\(toolbar, el\('a', 'toolbar-home', '← New lookup'\)\)/);
+  assert.doesNotMatch(source, /addKofiLink\(actions\)/);
+  assert.match(source, /const toolbar = add\(slot, el\('div', 'landing-toolbar'\)\);\s*addKofiLink\(toolbar\);\s*const themeControl = createThemeControl\(toolbar/);
+  assert.match(source, /mountLandingToolbar\(slot, target/);
+  assert.match(source, /title = 'Support this project on Ko-fi'/);
+  assert.match(source, /aria-label', 'Support this project on Ko-fi'/);
+  assert.match(source, /link\.target = '_blank'/);
+  assert.match(source, /link\.rel = 'noopener noreferrer'/);
+  assert.doesNotMatch(source, /\['Ko-fi', KOFI_URL\]/);
   assert.match(source, /onOriginalResponse/);
 });
 
@@ -77,6 +87,39 @@ test('theme selector restores saved Light and Dark selections', () => {
     assert.equal(select.value, theme);
     assert.equal(target.dataset.theme, expectedDark ? 'dark' : 'light');
     control.destroy();
+  }
+});
+
+test('theme selector updates its inline SVG monitor, sun, and moon icons', () => {
+  const previousDocument = global.document;
+  global.document = {
+    createElementNS(_namespace, tag) {
+      return { tag, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };
+    }
+  };
+  try {
+    const listeners = new Map();
+    const select = { value: '', addEventListener(type, fn) { listeners.set(type, fn); }, removeEventListener(type) { listeners.delete(type); } };
+    const icon = {
+      dataset: {},
+      children: [],
+      get firstChild() { return this.children[0] || null; },
+      removeChild(child) { this.children.splice(this.children.indexOf(child), 1); },
+      appendChild(child) { this.children.push(child); }
+    };
+    const control = Renderer.createThemeSelector(select, { dataset: {} }, { theme: 'auto' }, () => {}, { matches: false }, icon);
+    assert.equal(icon.dataset.themeIcon, 'auto');
+    assert.deepEqual(icon.children.map(shape => shape.tag), ['rect', 'path']);
+    select.value = 'light'; listeners.get('change')();
+    assert.equal(icon.dataset.themeIcon, 'light');
+    assert.deepEqual(icon.children.map(shape => shape.tag), ['circle', 'path']);
+    select.value = 'dark'; listeners.get('change')();
+    assert.equal(icon.dataset.themeIcon, 'dark');
+    assert.deepEqual(icon.children.map(shape => shape.tag), ['path']);
+    control.destroy();
+  } finally {
+    if (previousDocument === undefined) delete global.document;
+    else global.document = previousDocument;
   }
 });
 
@@ -222,9 +265,16 @@ test('JSON tokenizer handles a large object and reconstructs every source charac
 test('shared stylesheet contains the common filter, theme, and standards affordances', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'viewer.css'), 'utf8');
   const themeCSS = fs.readFileSync(path.join(__dirname, '..', 'theme.css'), 'utf8');
-  assert.match(themeCSS, /^\.theme-select\{/);
-  assert.match(themeCSS, /\.app\[data-theme="dark"\] \.theme-select/);
-  assert.match(themeCSS, /html\[data-theme="dark"\] \.landing-theme-select/);
+  assert.match(themeCSS, /\.theme-select\{/);
+  assert.match(themeCSS, /\.theme-control\{[^}]*--theme-text:var\(--text/);
+  assert.match(themeCSS, /\.landing-toolbar\{[^}]*justify-content:space-between/);
+  assert.match(themeCSS, /\.landing-toolbar\{[^}]*flex-wrap:wrap/);
+  assert.match(themeCSS, /\.landing-toolbar \.theme-control\{margin-left:auto\}/);
+  assert.match(themeCSS, /\.theme-label\{[^}]*color:var\(--theme-text/);
+  assert.match(themeCSS, /\.theme-icon\{[^}]*color:var\(--theme-text/);
+  assert.match(themeCSS, /\.toolbar-kofi:focus-visible\{outline:2px solid/);
+  const landingCss = fs.readFileSync(path.join(__dirname, '..', '..', 'web/index.html'), 'utf8');
+  assert.match(landingCss, /:root\[data-theme="dark"\]\{[^}]*--text:#e9f2fa/);
   for (const selector of ['.human-toolbar', '.filter-input', '.app[data-theme="dark"]', '.info', '.toolbar-button', '.copy-raw']) {
     assert.ok(css.includes(selector), selector);
   }
@@ -232,6 +282,7 @@ test('shared stylesheet contains the common filter, theme, and standards afforda
     assert.ok(css.includes(variable), variable);
   }
   assert.match(css, /\.app\[data-theme="dark"\] \.machine-view/);
+  assert.match(css, /\.app\[data-theme="dark"\]\{[^}]*--text:#e9f2fa/);
   assert.match(css, /\.machine-json\{[^}]*white-space:pre-wrap/);
   assert.match(css, /\.machine-json\{[^}]*overflow-wrap:anywhere/);
   assert.match(css, /\.machine-json\{[^}]*max-width:100%/);

@@ -2,7 +2,7 @@
 
 ## Architecture
 
-`core/` is the sole source for RDAP parsing, IANA bootstrap discovery, formatting, safe DOM rendering, filtering, themes, JSON highlighting and shared CSS. `extension/` contains the browser integration, settings, local lookup UI and release packager. `web/` is an independent static app for self-hosting and development. `docker/` packages only the built static web app into unprivileged nginx. `tests/` verifies distribution artifacts. Do not edit generated bundles or `site/`; rebuild them from source.
+`core/` is the sole source for RDAP parsing, IANA bootstrap discovery, formatting, safe DOM rendering, filtering, themes, JSON highlighting and shared CSS. `assets/` contains local RDAP -h icon artwork. `extension/` contains browser integration, settings, local lookup UI and release packager. `web/` is an independent static app for self-hosting and development. `docker/` packages the built static web app and local favicon assets into nginx. `tests/` verifies distribution artifacts. Do not edit generated bundles or `site/`; rebuild them from source.
 
 ## Development
 

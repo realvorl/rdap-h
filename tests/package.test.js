@@ -34,6 +34,7 @@ test('Docker package serves the built static web app without logging query URLs'
   assert.match(dockerfile, /FROM node:24\.22\.3-alpine3\.24 AS web-build/);
   assert.match(dockerfile, /FROM nginx:1\.30\.7-alpine3\.24/);
   assert.match(dockerfile, /USER 101:101/);
+  assert.match(dockerfile, /COPY assets \.\/assets/);
   assert.match(dockerfile, /COPY --from=web-build \/src\/site\//);
   assert.match(dockerfile, /HEALTHCHECK/);
   assert.match(dockerfile, /ENTRYPOINT \["nginx"\]/);
@@ -43,13 +44,19 @@ test('Docker package serves the built static web app without logging query URLs'
   assert.match(ignore, /extension/);
   assert.match(compose, /8080:8080/);
   assert.match(compose, /read_only: true/);
-  for (const file of ['index.html', 'src/app.js', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css', 'core/theme.css']) {
+  for (const file of ['index.html', 'src/app.js', 'core/rdap.js', 'core/renderer.js', 'core/viewer.css', 'core/theme.css', 'assets/icon.svg', 'assets/icon-small.svg', 'assets/icon-48.png', 'assets/icon-128.png']) {
     assert.ok(await fs.stat(path.join(root, 'site', file)), `site/${file}`);
   }
   const html = await fs.readFile(path.join(root, 'site/index.html'), 'utf8');
-  assert.match(html, /RDAP Human Viewer is an independent project/);
+  assert.match(html, /RDAP, but for Humans is an independent project/);
   assert.match(html, /https:\/\/github\.com\/realvorl\/rdap-human-viewer\/issues/);
-  assert.match(html, /https:\/\/ko-fi\.com\/realvorl/);
+  assert.doesNotMatch(html, /https:\/\/ko-fi\.com\/realvorl/);
+  const renderer = await fs.readFile(path.join(root, 'site/core/renderer.js'), 'utf8');
+  assert.match(renderer, /KOFI_URL = 'https:\/\/ko-fi\.com\/realvorl'/);
+  assert.match(renderer, /Support this project on Ko-fi/);
+  assert.match(html, /href="assets\/icon-small\.svg"/);
+  assert.match(html, /href="assets\/icon-48\.png"/);
+  assert.match(html, /href="assets\/icon-128\.png"/);
   assert.doesNotMatch(html, /<script[^>]+src="https?:/i);
 });
 

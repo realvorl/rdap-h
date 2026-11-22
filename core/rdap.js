@@ -1,4 +1,4 @@
-/* RDAP Human Viewer — dependency-free parsing and field metadata. */
+/* RDAP, but for Humans — dependency-free parsing and field metadata. */
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
